@@ -4,12 +4,14 @@
 #-------------------------------------------------------
 
 # Set GNU crosscompiler target name
-GNU_TARGET = arm-xilinx-linux-gnueabi
+GNU_TARGET = arm-linux-gnueabihf
 
 # Set GNU tools install path
 # Examples are installations at the APS:
 #GNU_DIR = /usr/local/vw/zynq-2011.09
-GNU_DIR = /usr/local/vw/zynq-2016.1/gnu/arm/lin
+#GNU_DIR = /usr/local/vw/zynq-2016.1/gnu/arm/lin
+#GNU_DIR = /tools/Xilinx/SDK/2018.3/gnu/aarch32/lin/gcc-arm-linux-gnueabi/bin/arm-linux-gnueabihf-gcc
+GNU_DIR = /tools/Xilinx/SDK/2018.3/gnu/aarch32/lin/gcc-arm-linux-gnueabi
 #GNU_DIR = /usr/local/Xilinx/SDK/2016.3/gnu/arm/lin
 #GNU_DIR = /APSshare/XilinxSDK/2015.4/gnu/arm/lin
 
