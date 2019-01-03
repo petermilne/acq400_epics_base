@@ -54,7 +54,8 @@ endif
 Cap5_SRCS = Cap5.xs
 Cap5_LIBS = ca Com
 Cap5_INCLUDES = -I$(shell $(PERL) ../perlConfig.pl archlib)/CORE
-Cap5_CFLAGS = $(shell $(PERL) ../perlConfig.pl ccflags)
+Cap5_CFLAGS =
+
 
 CLEANS += Cap5.c
 
