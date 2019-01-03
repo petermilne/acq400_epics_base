@@ -31,4 +31,8 @@ GNU_DIR = /tools/Xilinx/SDK/2018.3/gnu/aarch32/lin/gcc-arm-linux-gnueabi
 #READLINE_DIR = /tools/cross/linux-x86.linux-arm/readline
 # See CONFIG_SITE.Common.linux-arm for other COMMANDLINE_LIBRARY values
 #COMMANDLINE_LIBRARY = READLINE
+ifeq ($(EPICS_ROOT),)
+$(error EPICS_ROOT NOT DEFINED, please source setup.env)
+endif
+LDFLAGS += -Wl,-rpath-link,$(EPICS_ROOT)/target/lib/linux-arm -L$(EPICS_ROOT)/target/lib/linux-arm
 
