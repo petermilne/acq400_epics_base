@@ -1,0 +1,4 @@
+ACQ400 branched from BASE 7.0.2 and cross compiled
+
+sudo ln -s /home/pgm/PROJECTS/EPICS7 /usr/local/epics
+
