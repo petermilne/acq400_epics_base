@@ -22,8 +22,7 @@
 # comment them all out to build without readline support.
 
 # No other libraries needed (recent Fedora, Ubuntu etc.):
-#COMMANDLINE_LIBRARY = READLINE
-
+COMMANDLINE_LIBRARY = READLINE
 # Needs -lncurses (RHEL 5 etc.):
 #COMMANDLINE_LIBRARY = READLINE_NCURSES
 

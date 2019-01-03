@@ -36,3 +36,4 @@ $(error EPICS_ROOT NOT DEFINED, please source setup.env)
 endif
 LDFLAGS += -Wl,-rpath-link,$(EPICS_ROOT)/target/lib/linux-arm -L$(EPICS_ROOT)/target/lib/linux-arm
 
+GNU_TARGET_INCLUDE_DIR=$(TARGET_INC)/linux-arm

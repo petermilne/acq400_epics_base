@@ -1,0 +1,17 @@
+
+if [ "x$TARGET_LIB" = "x" ]; then
+	source setup.env
+fi
+
+BR=~/PROJECTS/buildroot/output/host/arm-buildroot-linux-gnueabihf/sysroot
+
+if [ ! -e $TARGET_LIB ]; then
+	mkdir -p $TARGET_LIB
+	(cd ${BR}/usr/lib/; cp -a -t $TARGET_LIB/linux-arm libtirpc.so* libreadline.so* libncurses.so*)
+fi
+if [ ! -e $TARGET_INC ]; then
+	mkdir -p $TARGET_INC
+	ln -s ${BR}/usr/include/readline $TARGET_INC/linux-arm
+fi
+
+
