@@ -3,6 +3,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -34,7 +35,6 @@
 #include "errlog.h"
 #include "epicsExport.h"
 
-#define epicsExportSharedSymbols
 #include "addrList.h"
 #include "iocinf.h"
 #include "cac.h"
@@ -53,7 +53,7 @@
 
 static const char pVersionCAC[] =
     "@(#) " EPICS_VERSION_STRING
-    ", CA Client Library " __DATE__;
+    ", CA Client Library";
 
 // TCP response dispatch table
 const cac::pProtoStubTCP cac::tcpJumpTableCAC [] =
@@ -155,7 +155,7 @@ cac::cac (
     }
 
     try {
-	    long status;
+        long status;
 
         /*
          * Certain os, such as HPUX, do not unblock a socket system call
@@ -285,7 +285,7 @@ cac::~cac ()
     // this blocks until the UDP thread exits so that
     // it will not sneak in any new clients
     //
-    // lock intentionally not held here so that we dont deadlock
+    // lock intentionally not held here so that we don't deadlock
     // waiting for the UDP thread to exit while it is waiting to
     // get the lock.
     {
@@ -312,7 +312,7 @@ cac::~cac ()
     //
     // wait for all tcp threads to exit
     //
-    // this will block for oustanding sends to go out so dont
+    // this will block for outstanding sends to go out so don't
     // hold a lock while waiting
     //
     {
@@ -411,7 +411,7 @@ void cac::show (
 
     ::printf ( "Channel Access Client Context at %p for user %s\n",
         static_cast <const void *> ( this ), this->pUserName );
-    // this also supresses the "defined, but not used"
+    // this also suppresses the "defined, but not used"
     // warning message
     ::printf ( "\trevision \"%s\"\n", pVersionCAC );
 

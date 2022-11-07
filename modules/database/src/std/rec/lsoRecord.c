@@ -1,6 +1,7 @@
 /*************************************************************************\
 * Copyright (c) 2012 UChicago Argonne LLC, as Operator of Argonne
 *     National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -70,15 +71,15 @@ static long init_record(struct dbCommon *pcommon, int pass)
     }
 
     /* must have a write_string function defined */
-    if (pdset->number < 5 || !pdset->write_string) {
+    if (pdset->common.number < 5 || !pdset->write_string) {
         recGblRecordError(S_dev_missingSup, prec, "lso: init_record");
         return S_dev_missingSup;
     }
 
     dbLoadLinkLS(&prec->dol, prec->val, prec->sizv, &prec->len);
 
-    if (pdset->init_record) {
-        long status = pdset->init_record(prec);
+    if (pdset->common.init_record) {
+        long status = pdset->common.init_record(pcommon);
 
         if (status)
             return status;
@@ -282,9 +283,9 @@ static long writeValue(lsoRecord *prec)
             status = dbPutLinkLS(&prec->siol, prec->val, prec->len);
             prec->pact = FALSE;
         } else { /* !prec->pact && delay >= 0. */
-            CALLBACK *pvt = prec->simpvt;
+            epicsCallback *pvt = prec->simpvt;
             if (!pvt) {
-                pvt = calloc(1, sizeof(CALLBACK)); /* very lazy allocation of callback structure */
+                pvt = calloc(1, sizeof(epicsCallback)); /* very lazy allocation of callback structure */
                 prec->simpvt = pvt;
             }
             if (pvt) callbackRequestProcessCallbackDelayed(pvt, prec->prio, prec, prec->sdly);

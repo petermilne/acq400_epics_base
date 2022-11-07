@@ -4,15 +4,16 @@
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
 * Copyright (c) 2013 ITER Organization.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
 /* callback.c */
 
-/* general purpose callback tasks		*/
+/* general purpose callback tasks               */
 /*
  *      Original Author:        Marty Kraimer
- *      Date:   	        07-18-91
+ *      Date:                   07-18-91
 */
 
 #include <stddef.h>
@@ -33,7 +34,6 @@
 #include "errMdef.h"
 #include "taskwd.h"
 
-#define epicsExportSharedSymbols
 #include "callback.h"
 #include "dbAccessDefs.h"
 #include "dbAddr.h"
@@ -55,7 +55,7 @@ typedef struct cbQueueSet {
     epicsRingPointerId queue;
     int queueOverflow;
     int queueOverflows;
-    int shutdown;
+    int shutdown; // use atomic
     int threadsConfigured;
     int threadsRunning;
 } cbQueueSet;
@@ -65,24 +65,27 @@ static cbQueueSet callbackQueue[NUM_CALLBACK_PRIORITIES];
 int callbackThreadsDefault = 1;
 /* Don't know what a reasonable default is (yet).
  * For the time being: parallel means 2 if not explicitly specified */
-epicsShareDef int callbackParallelThreadsDefault = 2;
+int callbackParallelThreadsDefault = 2;
 epicsExportAddress(int,callbackParallelThreadsDefault);
 
 /* Timer for Delayed Requests */
 static epicsTimerQueueId timerQueue;
 
-/* Shutdown handling */
-enum ctl {ctlInit, ctlRun, ctlPause, ctlExit};
-static volatile enum ctl cbCtl;
-static epicsEventId startStopEvent;
+enum cbState_t {
+    cbInit,  /* before callbackInit() and after callbackCleanup() */
+    cbRun,   /* after callbackInit() and before callbackStop() */
+    cbStop,  /* after callbackStop() and before callbackCleanup() */
+};
 
-static int callbackIsInit;
+static int cbState; // holdscbState_t, use atomic ops
+
+static epicsEventId startStopEvent;
 
 /* Static data */
 static char *threadNamePrefix[NUM_CALLBACK_PRIORITIES] = {
     "cbLow", "cbMedium", "cbHigh"
 };
-#define FULL_MSG(name) "callbackRequest: " name " ring buffer full\n"
+#define FULL_MSG(name) "callbackRequest: " ERL_ERROR " " name " ring buffer full\n"
 static char *fullMessage[NUM_CALLBACK_PRIORITIES] = {
     FULL_MSG("cbLow"), FULL_MSG("cbMedium"), FULL_MSG("cbHigh")
 };
@@ -96,7 +99,7 @@ static int priorityValue[NUM_CALLBACK_PRIORITIES] = {0, 1, 2};
 
 int callbackSetQueueSize(int size)
 {
-    if (callbackIsInit) {
+    if (epicsAtomicGetIntT(&cbState)!=cbInit) {
         fprintf(stderr, "Callback system already initialized\n");
         return -1;
     }
@@ -107,7 +110,7 @@ int callbackSetQueueSize(int size)
 int callbackQueueStatus(const int reset, callbackQueueStats *result)
 {
     int ret;
-    if (!callbackIsInit) return -1;
+    if (epicsAtomicGetIntT(&cbState)==cbInit) return -1;
     if (result) {
         int prio;
         result->size = callbackQueueSize;
@@ -151,7 +154,7 @@ void callbackQueueShow(const int reset)
 
 int callbackParallelThreads(int count, const char *prio)
 {
-    if (callbackIsInit) {
+    if (epicsAtomicGetIntT(&cbState)!=cbInit) {
         fprintf(stderr, "Callback system already initialized\n");
         return -1;
     }
@@ -207,13 +210,13 @@ static void callbackTask(void *arg)
     taskwdInsert(0, NULL, NULL);
     epicsEventSignal(startStopEvent);
 
-    while(!mySet->shutdown) {
+    while(!epicsAtomicGetIntT(&mySet->shutdown)) {
         void *ptr;
         if (epicsRingPointerIsEmpty(mySet->queue))
             epicsEventMustWait(mySet->semWakeUp);
 
         while ((ptr = epicsRingPointerPop(mySet->queue))) {
-            CALLBACK *pcallback = (CALLBACK *)ptr;
+            epicsCallback *pcallback = (epicsCallback *)ptr;
             if(!epicsRingPointerIsEmpty(mySet->queue))
                 epicsEventMustTrigger(mySet->semWakeUp);
             mySet->queueOverflow = FALSE;
@@ -230,11 +233,10 @@ void callbackStop(void)
 {
     int i;
 
-    if (cbCtl == ctlExit) return;
-    cbCtl = ctlExit;
+    if (epicsAtomicCmpAndSwapIntT(&cbState, cbRun, cbStop)!=cbRun) return;
 
     for (i = 0; i < NUM_CALLBACK_PRIORITIES; i++) {
-        callbackQueue[i].shutdown = 1;
+        epicsAtomicSetIntT(&callbackQueue[i].shutdown, 1);
         epicsEventSignal(callbackQueue[i].semWakeUp);
     }
 
@@ -252,16 +254,21 @@ void callbackCleanup(void)
 {
     int i;
 
+    if(epicsAtomicCmpAndSwapIntT(&cbState, cbStop, cbInit)!=cbStop) {
+        fprintf(stderr, "callbackCleanup() but not stopped\n");
+    }
+
     for (i = 0; i < NUM_CALLBACK_PRIORITIES; i++) {
         cbQueueSet *mySet = &callbackQueue[i];
 
         assert(epicsAtomicGetIntT(&mySet->threadsRunning)==0);
         epicsEventDestroy(mySet->semWakeUp);
+        mySet->semWakeUp = NULL;
         epicsRingPointerDelete(mySet->queue);
+        mySet->queue = NULL;
     }
 
     epicsTimerQueueRelease(timerQueue);
-    callbackIsInit = 0;
     memset(callbackQueue, 0, sizeof(callbackQueue));
 }
 
@@ -271,15 +278,14 @@ void callbackInit(void)
     int j;
     char threadName[32];
 
-    if (callbackIsInit) {
-        errlogMessage("Warning: callbackInit called again before callbackCleanup\n");
+    if (epicsAtomicCmpAndSwapIntT(&cbState, cbInit, cbRun)!=cbInit) {
+        fprintf(stderr, "Warning: callbackInit called again before callbackCleanup\n");
         return;
     }
-    callbackIsInit = 1;
 
     if(!startStopEvent)
         startStopEvent = epicsEventMustCreate(epicsEventEmpty);
-    cbCtl = ctlRun;
+
     timerQueue = epicsTimerQueueAllocate(0, epicsThreadPriorityScanHigh);
 
     for (i = 0; i < NUM_CALLBACK_PRIORITIES; i++) {
@@ -313,22 +319,26 @@ void callbackInit(void)
 }
 
 /* This routine can be called from interrupt context */
-int callbackRequest(CALLBACK *pcallback)
+int callbackRequest(epicsCallback *pcallback)
 {
     int priority;
     int pushOK;
     cbQueueSet *mySet;
 
     if (!pcallback) {
-        epicsInterruptContextMessage("callbackRequest: pcallback was NULL\n");
+        epicsInterruptContextMessage("callbackRequest: " ERL_ERROR " pcallback was NULL\n");
         return S_db_notInit;
     }
     priority = pcallback->priority;
     if (priority < 0 || priority >= NUM_CALLBACK_PRIORITIES) {
-        epicsInterruptContextMessage("callbackRequest: Bad priority\n");
+        epicsInterruptContextMessage("callbackRequest: " ERL_ERROR " Bad priority\n");
         return S_db_badChoice;
     }
     mySet = &callbackQueue[priority];
+    if (!mySet->queue) {
+        epicsInterruptContextMessage("callbackRequest: " ERL_ERROR " Callbacks not initialized\n");
+        return S_db_notInit;
+    }
     if (mySet->queueOverflow) return S_db_bufFull;
 
     pushOK = epicsRingPointerPush(mySet->queue, pcallback);
@@ -343,7 +353,7 @@ int callbackRequest(CALLBACK *pcallback)
     return 0;
 }
 
-static void ProcessCallback(CALLBACK *pcallback)
+static void ProcessCallback(epicsCallback *pcallback)
 {
     dbCommon *pRec;
 
@@ -354,14 +364,14 @@ static void ProcessCallback(CALLBACK *pcallback)
     dbScanUnlock(pRec);
 }
 
-void callbackSetProcess(CALLBACK *pcallback, int Priority, void *pRec)
+void callbackSetProcess(epicsCallback *pcallback, int Priority, void *pRec)
 {
     callbackSetCallback(ProcessCallback, pcallback);
     callbackSetPriority(Priority, pcallback);
     callbackSetUser(pRec, pcallback);
 }
 
-int  callbackRequestProcessCallback(CALLBACK *pcallback,
+int  callbackRequestProcessCallback(epicsCallback *pcallback,
     int Priority, void *pRec)
 {
     callbackSetProcess(pcallback, Priority, pRec);
@@ -370,11 +380,11 @@ int  callbackRequestProcessCallback(CALLBACK *pcallback,
 
 static void notify(void *pPrivate)
 {
-    CALLBACK *pcallback = (CALLBACK *)pPrivate;
+    epicsCallback *pcallback = (epicsCallback *)pPrivate;
     callbackRequest(pcallback);
 }
 
-void callbackRequestDelayed(CALLBACK *pcallback, double seconds)
+void callbackRequestDelayed(epicsCallback *pcallback, double seconds)
 {
     epicsTimerId timer = (epicsTimerId)pcallback->timer;
 
@@ -385,7 +395,7 @@ void callbackRequestDelayed(CALLBACK *pcallback, double seconds)
     epicsTimerStartDelay(timer, seconds);
 }
 
-void callbackCancelDelayed(CALLBACK *pcallback)
+void callbackCancelDelayed(epicsCallback *pcallback)
 {
     epicsTimerId timer = (epicsTimerId)pcallback->timer;
 
@@ -394,7 +404,7 @@ void callbackCancelDelayed(CALLBACK *pcallback)
     }
 }
 
-void callbackRequestProcessCallbackDelayed(CALLBACK *pcallback,
+void callbackRequestProcessCallbackDelayed(epicsCallback *pcallback,
     int Priority, void *pRec, double seconds)
 {
     callbackSetProcess(pcallback, Priority, pRec);

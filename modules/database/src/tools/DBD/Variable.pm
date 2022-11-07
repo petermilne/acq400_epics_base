@@ -1,6 +1,14 @@
+######################################################################
+# SPDX-License-Identifier: EPICS
+# EPICS BASE is distributed subject to a Software License Agreement
+# found in file LICENSE that is included with this distribution.
+######################################################################
+
 package DBD::Variable;
 use DBD::Base;
-@ISA = qw(DBD::Base);
+our @ISA = qw(DBD::Base);
+
+use strict;
 
 my %valid_types = (
     # C type name => corresponding iocshArg type identifier

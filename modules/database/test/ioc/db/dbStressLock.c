@@ -1,6 +1,7 @@
 /*************************************************************************\
 * Copyright (c) 2014 Brookhaven Science Assoc. as operator of Brookhaven
 *               National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
  \*************************************************************************/
@@ -8,7 +9,7 @@
 /*
  * Lockset stress test.
  *
- * The test stratagy is for N threads to contend for M records.
+ * The test strategy is for N threads to contend for M records.
  * Each thread will perform one of three operations:
  * 1) Lock a single record.
  * 2) Lock several records.

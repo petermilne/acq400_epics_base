@@ -3,6 +3,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -80,14 +81,6 @@ rset waveformRSET={
         get_alarm_double
 };
 epicsExportAddress(rset,waveformRSET);
-struct wfdset { /* waveform dset */
-        long            number;
-        DEVSUPFUN       dev_report;
-        DEVSUPFUN       init;
-        DEVSUPFUN       init_record; /*returns: (-1,0)=>(failure,success)*/
-        DEVSUPFUN       get_ioint_info;
-        DEVSUPFUN       read_wf; /*returns: (-1,0)=>(failure,success)*/
-};
 
 static void monitor(waveformRecord *);
 static long readValue(waveformRecord *);
@@ -95,7 +88,7 @@ static long readValue(waveformRecord *);
 static long init_record(struct dbCommon *pcommon, int pass)
 {
     struct waveformRecord *prec = (struct waveformRecord *)pcommon;
-    struct wfdset *pdset;
+    wfdset *pdset;
 
     if (pass == 0) {
         if (prec->nelm <= 0)
@@ -111,26 +104,27 @@ static long init_record(struct dbCommon *pcommon, int pass)
     recGblInitSimm(pcommon, &prec->sscn, &prec->oldsimm, &prec->simm, &prec->siml);
 
     /* must have dset defined */
-    if (!(pdset = (struct wfdset *)(prec->dset))) {
+    if (!(pdset = (wfdset *)(prec->dset))) {
         recGblRecordError(S_dev_noDSET,(void *)prec,"wf: init_record");
         return S_dev_noDSET;
     }
     /* must have read_wf function defined */
-    if ((pdset->number < 5) || (pdset->read_wf == NULL)) {
+    if ((pdset->common.number < 5) || (pdset->read_wf == NULL)) {
         recGblRecordError(S_dev_missingSup,(void *)prec,"wf: init_record");
         return S_dev_missingSup;
     }
-    if (!pdset->init_record)
+    if (!pdset->common.init_record)
         return 0;
 
-    return pdset->init_record(prec);
+    return pdset->common.init_record(pcommon);
 }
 
 static long process(struct dbCommon *pcommon)
 {
     struct waveformRecord *prec = (struct waveformRecord *)pcommon;
-    struct wfdset *pdset = (struct wfdset *)(prec->dset);
+    wfdset *pdset = (wfdset *)(prec->dset);
     unsigned char pact=prec->pact;
+    epicsUInt32 nord = prec->nord;
     long status;
 
     if ((pdset==NULL) || (pdset->read_wf==NULL)) {
@@ -146,9 +140,12 @@ static long process(struct dbCommon *pcommon)
     if (!pact && prec->pact)
         return 0;
 
+    prec->pact = TRUE;
     prec->udf = FALSE;
     recGblGetTimeStampSimm(prec, prec->simm, &prec->siol);
 
+    if (nord != prec->nord)
+        db_post_events(prec, &prec->nord, DBE_VALUE | DBE_LOG);
     monitor(prec);
 
     /* process the forward scan link record */
@@ -212,7 +209,9 @@ static long put_array_info(DBADDR *paddr, long nNew)
         prec->nord = prec->nelm;
 
     if (nord != prec->nord)
+    {
         db_post_events(prec, &prec->nord, DBE_VALUE | DBE_LOG);
+    }
     return 0;
 }
 
@@ -328,7 +327,7 @@ static void monitor(waveformRecord *prec)
 
 static long readValue(waveformRecord *prec)
 {
-    struct wfdset *pdset = (struct wfdset *) prec->dset;
+    wfdset *pdset = (wfdset *) prec->dset;
     long status = 0;
 
     if (!prec->pact) {
@@ -340,11 +339,7 @@ static long readValue(waveformRecord *prec)
 
     switch (prec->simm) {
     case menuYesNoNO: {
-        epicsUInt32 nord = prec->nord;
-
         status = pdset->read_wf(prec);
-        if (nord != prec->nord)
-            db_post_events(prec, &prec->nord, DBE_VALUE | DBE_LOG);
         break;
     }
 
@@ -359,15 +354,14 @@ static long readValue(waveformRecord *prec)
 
             if (nRequest != prec->nord) {
                 prec->nord = nRequest;
-                db_post_events(prec, &prec->nord, DBE_VALUE | DBE_LOG);
             }
             prec->pact = FALSE;
         }
         else { /* !prec->pact && delay >= 0 */
-            CALLBACK *pvt = prec->simpvt;
+            epicsCallback *pvt = prec->simpvt;
 
             if (!pvt) { /* very lazy allocation of callback structure */
-                pvt = calloc(1, sizeof(CALLBACK));
+                pvt = calloc(1, sizeof(epicsCallback));
                 prec->simpvt = pvt;
             }
             if (pvt)

@@ -3,6 +3,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -30,7 +31,6 @@
 //
 // EPICS
 //
-#define epicsExportSharedSymbols
 #define EPICS_EXPOSE_LIBCOM_MONOTONIC_PRIVATE
 #include "epicsTime.h"
 #include "generalTimeSup.h"
@@ -47,7 +47,8 @@
 
 extern "C" void setThreadName ( DWORD dwThreadID, LPCSTR szThreadName );
 
-static int osdTimeGetCurrent ( epicsTimeStamp *pDest );
+extern "C"
+int osdTimeGetCurrent ( epicsTimeStamp *pDest );
 
 // for mingw
 #if !defined ( MAXLONGLONG )
@@ -85,7 +86,7 @@ private:
     bool threadHasExited;
     void updatePLL ();
     static const int pllDelay; /* integer seconds */
-    // cant be static because of diff btw __stdcall and __cdecl 
+    // cant be static because of diff btw __stdcall and __cdecl
     friend unsigned __stdcall _pllThreadEntry ( void * pCurrentTimeIn );
 };
 
@@ -96,7 +97,7 @@ static const LONGLONG FILE_TIME_TICKS_PER_SEC = 10000000;
 static const LONGLONG EPICS_TIME_TICKS_PER_SEC = 1000000000;
 static const LONGLONG ET_TICKS_PER_FT_TICK =
             EPICS_TIME_TICKS_PER_SEC / FILE_TIME_TICKS_PER_SEC;
-    
+
 //
 // Start and register time provider
 //
@@ -116,7 +117,7 @@ static int done = timeRegister();
 //
 // osdTimeGetCurrent ()
 //
-static int osdTimeGetCurrent ( epicsTimeStamp *pDest )
+int osdTimeGetCurrent ( epicsTimeStamp *pDest )
 {
     assert ( pCurrentTime );
 
@@ -125,7 +126,7 @@ static int osdTimeGetCurrent ( epicsTimeStamp *pDest )
 }
 
 // synthesize a reentrant gmtime on WIN32
-int epicsShareAPI epicsTime_gmtime ( const time_t *pAnsiTime, struct tm *pTM )
+int epicsStdCall epicsTime_gmtime ( const time_t *pAnsiTime, struct tm *pTM )
 {
     struct tm * pRet = gmtime ( pAnsiTime );
     if ( pRet ) {
@@ -138,7 +139,7 @@ int epicsShareAPI epicsTime_gmtime ( const time_t *pAnsiTime, struct tm *pTM )
 }
 
 // synthesize a reentrant localtime on WIN32
-int epicsShareAPI epicsTime_localtime (
+int epicsStdCall epicsTime_localtime (
     const time_t * pAnsiTime, struct tm * pTM )
 {
     struct tm * pRet = localtime ( pAnsiTime );
@@ -209,13 +210,13 @@ void currentTime :: startPLL ()
 {
     // create frequency estimation thread when needed
     if ( this->perfCtrPresent && ! this->threadHandle ) {
-        this->threadHandle = (HANDLE) 
+        this->threadHandle = (HANDLE)
             _beginthreadex ( 0, 4096, _pllThreadEntry, this,
-                CREATE_SUSPENDED | STACK_SIZE_PARAM_IS_A_RESERVATION, 
+                CREATE_SUSPENDED | STACK_SIZE_PARAM_IS_A_RESERVATION,
                 & this->threadId );
         assert ( this->threadHandle );
-        BOOL bstat = SetThreadPriority ( 
-        	this->threadHandle, THREAD_PRIORITY_HIGHEST );
+        BOOL bstat = SetThreadPriority (
+            this->threadHandle, THREAD_PRIORITY_HIGHEST );
         assert ( bstat );
         DWORD wstat =  ResumeThread ( this->threadHandle );
         assert ( wstat != 0xFFFFFFFF );
@@ -387,15 +388,15 @@ void currentTime :: updatePLL ()
             ( MAXLONGLONG - this->lastPerfCounter )
                             + ( curPerfCounter.QuadPart - MINLONGLONG ) + 1;
     }
-    
+
     // discard performance counter delay measurement glitches
     {
         const LONGLONG expectedDly = this->perfCounterFreq * pllDelay;
         const LONGLONG bnd = expectedDly / 4;
-        if ( perfCounterDiffSinceLastFetch <= 0 || 
+        if ( perfCounterDiffSinceLastFetch <= 0 ||
                 perfCounterDiffSinceLastFetch >= expectedDly + bnd ) {
             LeaveCriticalSection( & this->mutex );
-            debugPrintf ( ( "perf ctr measured delay out of bounds m=%d max=%d\n",               
+            debugPrintf ( ( "perf ctr measured delay out of bounds m=%d max=%d\n",
                 static_cast < int > ( perfCounterDiffSinceLastFetch ),
                 static_cast < int > ( expectedDly + bnd ) ) );
             return;
@@ -409,7 +410,7 @@ void currentTime :: updatePLL ()
     this->lastPerfCounter = curPerfCounter.QuadPart;
 
     LONGLONG epicsTimeFromCurrentFileTime;
-    
+
     {
         static bool firstMessageWasSent = false;
         if ( curFileTime.QuadPart >= epicsEpochInFileTime ) {
@@ -437,9 +438,9 @@ void currentTime :: updatePLL ()
 
     delta = epicsTimeFromCurrentFileTime - this->epicsTimeLast;
     if ( delta > EPICS_TIME_TICKS_PER_SEC || delta < -EPICS_TIME_TICKS_PER_SEC ) {
-        // When there is an abrupt shift in the current computed time vs 
-        // the time derived from the current file time then someone has 
-        // probably adjusted the real time clock and the best reaction 
+        // When there is an abrupt shift in the current computed time vs
+        // the time derived from the current file time then someone has
+        // probably adjusted the real time clock and the best reaction
         // is to just assume the new time base
         this->epicsTimeLast = epicsTimeFromCurrentFileTime;
         this->perfCounterFreq = this->perfCounterFreqPLL;
@@ -480,10 +481,10 @@ void currentTime :: updatePLL ()
             freqEstDiff /= sysFreq.QuadPart;
             freqEstDiff *= 100.0;
             debugPrintf ( ( "currentTime: freq delta %f %% freq est "
-                "delta %f %% time delta %f sec\n", 
-                freqDiff, 
-                freqEstDiff, 
-                static_cast < double > ( delta ) / 
+                "delta %f %% time delta %f sec\n",
+                freqDiff,
+                freqEstDiff,
+                static_cast < double > ( delta ) /
                         EPICS_TIME_TICKS_PER_SEC ) );
 #       endif
     }
@@ -493,7 +494,7 @@ void currentTime :: updatePLL ()
 
 static unsigned __stdcall _pllThreadEntry ( void * pCurrentTimeIn )
 {
-    currentTime * pCT = 
+    currentTime * pCT =
         reinterpret_cast < currentTime * > ( pCurrentTimeIn );
     setThreadName ( pCT->threadId, "EPICS Time PLL" );
     while ( ! pCT->threadShutdownCmd ) {
@@ -509,8 +510,8 @@ static unsigned __stdcall _pllThreadEntry ( void * pCurrentTimeIn )
 epicsTime::operator FILETIME () const
 {
     LARGE_INTEGER ftTicks;
-    ftTicks.QuadPart = ( this->secPastEpoch * FILE_TIME_TICKS_PER_SEC ) +
-        ( this->nSec / ET_TICKS_PER_FT_TICK );
+    ftTicks.QuadPart = ( this->ts.secPastEpoch * FILE_TIME_TICKS_PER_SEC ) +
+        ( this->ts.nsec / ET_TICKS_PER_FT_TICK );
     ftTicks.QuadPart += epicsEpochInFileTime;
     FILETIME ts;
     ts.dwLowDateTime = ftTicks.LowPart;
@@ -526,15 +527,15 @@ epicsTime::epicsTime ( const FILETIME & ts )
     if ( lift.QuadPart > epicsEpochInFileTime ) {
         LONGLONG fileTimeTicksSinceEpochEPICS =
             lift.QuadPart - epicsEpochInFileTime;
-        this->secPastEpoch = static_cast < epicsUInt32 >
+        this->ts.secPastEpoch = static_cast < epicsUInt32 >
             ( fileTimeTicksSinceEpochEPICS / FILE_TIME_TICKS_PER_SEC );
-        this->nSec = static_cast < epicsUInt32 >
+        this->ts.nsec = static_cast < epicsUInt32 >
             ( ( fileTimeTicksSinceEpochEPICS % FILE_TIME_TICKS_PER_SEC ) *
             ET_TICKS_PER_FT_TICK );
     }
     else {
-        this->secPastEpoch = 0;
-        this->nSec = 0;
+        this->ts.secPastEpoch = 0;
+        this->ts.nsec = 0;
     }
 }
 

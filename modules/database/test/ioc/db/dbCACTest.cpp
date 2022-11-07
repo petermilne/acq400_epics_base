@@ -1,11 +1,12 @@
 /*************************************************************************\
 * Copyright (c) 2015 Brookhaven Science Assoc. as operator of Brookhaven
 *               National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
  \*************************************************************************/
 /*
- * Part of dbCaLinkTest, compiled seperately to avoid
+ * Part of dbCaLinkTest, compiled separately to avoid
  * dbAccess.h vs. db_access.h conflicts
  */
 

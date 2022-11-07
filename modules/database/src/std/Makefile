@@ -6,11 +6,18 @@
 # EPICS BASE is distributed subject to a Software License Agreement found
 # in file LICENSE that is included with this distribution.
 #*************************************************************************
+STDDIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
+TOP = ../../../..
 
-TOP = ../..
 include $(TOP)/configure/CONFIG
 
-STDDIR=$(TOP)/src/std
+USR_CPPFLAGS += -DUSE_TYPED_RSET -DUSE_TYPED_DSET
+
+# Shared library ABI version.
+SHRLIB_VERSION = $(EPICS_DATABASE_MAJOR_VERSION).$(EPICS_DATABASE_MINOR_VERSION).$(EPICS_DATABASE_MAINTENANCE_VERSION)
+
+API_HEADER = dbRecStdAPI.h
+dbRecStd_API = dbRecStd
 
 LIBRARY_IOC += dbRecStd
 dbRecStd_LIBS = dbCore ca Com

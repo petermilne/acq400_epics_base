@@ -5,6 +5,7 @@
 *     Operator of Los Alamos National Laboratory.
 * Copyright (c) 2013 Helmholtz-Zentrum Berlin
 *     für Materialien und Energie GmbH.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -36,7 +37,6 @@
 #include "epicsTime.h"
 #include "taskwd.h"
 
-#define epicsExportSharedSymbols
 #include "callback.h"
 #include "dbAccessDefs.h"
 #include "dbAddr.h"
@@ -109,7 +109,7 @@ static char *priorityName[NUM_CALLBACK_PRIORITIES] = {
 /* EVENT */
 
 typedef struct event_list {
-    CALLBACK            callback[NUM_CALLBACK_PRIORITIES];
+    epicsCallback            callback[NUM_CALLBACK_PRIORITIES];
     scan_list           scan_list[NUM_CALLBACK_PRIORITIES];
     struct event_list   *next;
     char                eventname[1]; /* actually arbitrary size */
@@ -120,7 +120,7 @@ static epicsMutexId event_lock;
 /* IO_EVENT*/
 
 typedef struct io_scan_list {
-    CALLBACK callback;
+    epicsCallback callback;
     scan_list scan_list;
 } io_scan_list;
 
@@ -141,9 +141,9 @@ static void periodicTask(void *arg);
 static void initPeriodic(void);
 static void deletePeriodic(void);
 static void spawnPeriodic(int ind);
-static void eventCallback(CALLBACK *pcallback);
+static void eventCallback(epicsCallback *pcallback);
 static void ioscanInit(void);
-static void ioscanCallback(CALLBACK *pcallback);
+static void ioscanCallback(epicsCallback *pcallback);
 static void ioscanDestroy(void);
 static void printList(scan_list *psl, char *message);
 static void scanList(scan_list *psl);
@@ -448,7 +448,7 @@ int scanpiol(void)                  /* print pioscan_list */
     return 0;
 }
 
-static void eventCallback(CALLBACK *pcallback)
+static void eventCallback(epicsCallback *pcallback)
 {
     scan_list *psl;
 
@@ -787,7 +787,7 @@ static void periodicTask(void *arg)
     taskwdInsert(0, NULL, NULL);
     epicsEventSignal(startStopEvent);
 
-    epicsTimeGetCurrent(&next);
+    epicsTimeGetMonotonic(&next);
     reported = next;
 
     while (ppsl->scanCtl != ctlExit) {
@@ -798,7 +798,7 @@ static void periodicTask(void *arg)
             scanList(&ppsl->scan_list);
 
         epicsTimeAddSeconds(&next, ppsl->period);
-        epicsTimeGetCurrent(&now);
+        epicsTimeGetMonotonic(&now);
         delay = epicsTimeDiffInSeconds(&next, &now);
         if (delay <= 0.0) {
             if (overtime == 0.0) {
@@ -817,7 +817,7 @@ static void periodicTask(void *arg)
             epicsTimeAddSeconds(&next, delay);
             if (++overruns >= 10 &&
                 epicsTimeDiffInSeconds(&now, &reported) > report_delay) {
-                errlogPrintf("\ndbScan warning from '%s' scan thread:\n"
+                errlogPrintf("\ndbScan " ERL_WARNING " from '%s' scan thread:\n"
                     "\tScan processing averages %.3f seconds (%.3f .. %.3f).\n"
                     "\tOver-runs have now happened %u times in a row.\n"
                     "\tTo fix this, move some records to a slower scan rate.\n",
@@ -944,7 +944,7 @@ static void spawnPeriodic(int ind)
     epicsEventWait(startStopEvent);
 }
 
-static void ioscanCallback(CALLBACK *pcallback)
+static void ioscanCallback(epicsCallback *pcallback)
 {
     ioscan_head *piosh;
     int prio;
@@ -1075,13 +1075,10 @@ static void addToList(struct dbCommon *precord, scan_list *psl)
     pse->pscan_list = psl;
     ptemp = (scan_element *)ellLast(&psl->list);
     while (ptemp) {
-        if (ptemp->precord->phas <= precord->phas) {
-            ellInsert(&psl->list, &ptemp->node, &pse->node);
-            break;
-        }
+        if (ptemp->precord->phas <= precord->phas) break;
         ptemp = (scan_element *)ellPrevious(&ptemp->node);
     }
-    if (ptemp == NULL) ellAdd(&psl->list, (void *)pse);
+    ellInsert(&psl->list, (ptemp ? &ptemp->node : NULL), &pse->node);
     psl->modified = TRUE;
     epicsMutexUnlock(psl->lock);
 }
@@ -1107,7 +1104,7 @@ static void deleteFromList(struct dbCommon *precord, scan_list *psl)
         return;
     }
     pse->pscan_list = NULL;
-    ellDelete(&psl->list, (void *)pse);
+    ellDelete(&psl->list, &pse->node);
     psl->modified = TRUE;
     epicsMutexUnlock(psl->lock);
 }

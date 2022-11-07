@@ -3,8 +3,9 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
-* in file LICENSE that is included with this distribution. 
+* in file LICENSE that is included with this distribution.
 \*************************************************************************/
 
 /* Original Author: Marty Kraimer
@@ -18,7 +19,6 @@
 #include <time.h>
 #include <errno.h>
 
-#define epicsExportSharedSymbols
 #include "epicsEvent.h"
 #include "epicsExit.h"
 #include "epicsTypes.h"
@@ -64,14 +64,21 @@ static void NTPTimeSync(void *dummy);
 /* NTPTime_Report iocsh command */
 static const iocshArg ReportArg0 = { "interest_level", iocshArgArgv};
 static const iocshArg * const ReportArgs[1] = { &ReportArg0 };
-static const iocshFuncDef ReportFuncDef = {"NTPTime_Report", 1, ReportArgs};
+static const iocshFuncDef ReportFuncDef = {"NTPTime_Report", 1, ReportArgs,
+                                           "Display time provider synchronization state\n"
+                                           "  interest_level - with level 1 it also shows:\n"
+                                           "                    * synchronization interval\n"
+                                           "                    * time when last synchronized\n"
+                                           "                    * nominal and measured system tick rates\n"
+                                           "                    * server address (vxWorks only)\n"};
 static void ReportCallFunc(const iocshArgBuf *args)
 {
     NTPTime_Report(args[0].ival);
 }
 
 /* NTPTime_Shutdown iocsh command */
-static const iocshFuncDef ShutdownFuncDef = {"NTPTime_Shutdown", 0, NULL};
+static const iocshFuncDef ShutdownFuncDef = {"NTPTime_Shutdown", 0, NULL,
+                                             "Shuts down NTP time synchronization thread\n"};
 static void ShutdownCallFunc(const iocshArgBuf *args)
 {
     NTPTime_Shutdown(NULL);
@@ -138,6 +145,8 @@ void NTPTime_Shutdown(void *dummy)
 
 static void NTPTimeSync(void *dummy)
 {
+    char lastSync[32] = "IOC was booted";
+
     taskwdInsert(0, NULL, NULL);
 
     for (epicsEventWaitWithTimeout(NTPTimePvt.loopEvent, NTPTimeSyncInterval);
@@ -156,8 +165,8 @@ static void NTPTimeSync(void *dummy)
         if (status) {
             if (++NTPTimePvt.syncsFailed > NTPTimeSyncRetries &&
                 NTPTimePvt.synchronized) {
-                errlogPrintf("NTPTimeSync: NTP requests failing - %s\n",
-                    strerror(errno));
+                errlogPrintf("NTPTimeSync: NTP requests failed since %s - %s\n",
+                    lastSync, strerror(errno));
                 NTPTimePvt.synchronized = 0;
             }
             continue;
@@ -178,16 +187,19 @@ static void NTPTimeSync(void *dummy)
             continue;
         }
 
+        epicsTimeToStrftime(lastSync, sizeof(lastSync),
+            "%Y-%m-%d %H:%M:%S.%06f", &NTPTimePvt.syncTime);
+
         NTPTimePvt.syncsFailed = 0;
         if (!NTPTimePvt.synchronized) {
-            errlogPrintf("NTPTimeSync: Sync recovered.\n");
+            errlogPrintf("NTPTimeSync: Sync recovered at %s\n", lastSync);
         }
 
         epicsMutexMustLock(NTPTimePvt.lock);
         diff = epicsTimeDiffInSeconds(&timeNow, &NTPTimePvt.clockTime);
         if (diff >= 0.0) {
             NTPTimePvt.ticksToSkip = 0;
-        } else { /* dont go back in time */
+        } else { /* don't go back in time */
             NTPTimePvt.ticksToSkip = -diff * osdTickRateGet();
         }
         NTPTimePvt.clockTick = tickNow;

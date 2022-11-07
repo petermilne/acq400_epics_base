@@ -2,6 +2,7 @@
 * Copyright (c) 2010 Brookhaven National Laboratory.
 * Copyright (c) 2010 Helmholtz-Zentrum Berlin
 *     fuer Materialien und Energie GmbH.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -12,6 +13,7 @@
 
 #include <string.h>
 
+#include "dbAccess.h"
 #include "dbStaticLib.h"
 #include "dbAccessDefs.h"
 #include "db_field_log.h"
@@ -39,12 +41,15 @@ static int fl_equal(const db_field_log *pfl1, const db_field_log *pfl2) {
 static void fl_setup(dbChannel *chan, db_field_log *pfl) {
     struct dbCommon  *prec = dbChannelRecord(chan);
 
+    memset(pfl, 0, sizeof(db_field_log));
     pfl->ctx  = dbfl_context_read;
     pfl->type = dbfl_type_val;
     pfl->stat = prec->stat;
     pfl->sevr = prec->sevr;
     pfl->time = prec->time;
+    pfl->mask = DBE_VALUE;
     pfl->field_type  = dbChannelFieldType(chan);
+    pfl->field_size  = dbChannelFieldSize(chan);
     pfl->no_elements = dbChannelElements(chan);
     /*
      * use memcpy to avoid a bus error on
@@ -62,6 +67,7 @@ static void changeValue(db_field_log *pfl2, long val) {
 }
 
 static void mustPassOnce(dbChannel *pch, db_field_log *pfl2, char* m, double d, long val) {
+    int oldFree = db_available_logs(), newFree;
     db_field_log *pfl;
 
     changeValue(pfl2, val);
@@ -71,18 +77,26 @@ static void mustPassOnce(dbChannel *pch, db_field_log *pfl2, char* m, double d, 
     testOk(fl_equal(pfl, pfl2), "call 1 does not change field_log data");
     pfl = dbChannelRunPreChain(pch, pfl2);
     testOk(NULL == pfl, "call 2 drops field_log");
+    newFree = db_available_logs();
+    testOk(newFree == oldFree + 1, "field_log was freed - %d+1 => %d",
+        oldFree, newFree);
 }
 
 static void mustDrop(dbChannel *pch, db_field_log *pfl2, char* m, double d, long val) {
+    int oldFree = db_available_logs(), newFree;
     db_field_log *pfl;
 
     changeValue(pfl2, val);
     testDiag("mode=%s delta=%g filter must drop", m, d);
     pfl = dbChannelRunPreChain(pch, pfl2);
     testOk(NULL == pfl, "call 1 drops field_log");
+    newFree = db_available_logs();
+    testOk(newFree == oldFree + 1, "field_log was freed - %d+1 => %d",
+        oldFree, newFree);
 }
 
 static void mustPassTwice(dbChannel *pch, db_field_log *pfl2, char* m, double d, long val) {
+    int oldFree = db_available_logs(), newFree;
     db_field_log *pfl;
 
     changeValue(pfl2, val);
@@ -93,6 +107,9 @@ static void mustPassTwice(dbChannel *pch, db_field_log *pfl2, char* m, double d,
     pfl = dbChannelRunPreChain(pch, pfl2);
     testOk(pfl2 == pfl, "call 2 does not drop or replace field_log");
     testOk(fl_equal(pfl, pfl2), "call 2 does not change field_log data");
+    newFree = db_available_logs();
+    testOk(newFree == oldFree, "field_log was not freed - %d => %d",
+        oldFree, newFree);
 }
 
 static void testHead (char* title) {
@@ -113,8 +130,9 @@ MAIN(dbndTest)
     db_field_log *pfl2;
     db_field_log fl1;
     dbEventCtx evtctx;
+    int logsFree, logsFinal;
 
-    testPlan(59);
+    testPlan(72);
 
     testdbPrepare();
 
@@ -132,8 +150,13 @@ MAIN(dbndTest)
 
     testOk(!!(plug = dbFindFilter(dbnd, strlen(dbnd))), "plugin dbnd registered correctly");
 
-    testOk(!!(pch = dbChannelCreate("x.VAL{\"dbnd\":{}}")), "dbChannel with plugin dbnd (delta=0) created");
+    testOk(!!(pch = dbChannelCreate("x.VAL{dbnd:{}}")), "dbChannel with plugin dbnd (delta=0) created");
     testOk((ellCount(&pch->filters) == 1), "channel has one plugin");
+
+    /* Start the free-list */
+    db_delete_field_log(db_create_read_log(pch));
+    logsFree = db_available_logs();
+    testDiag("%d field_logs on free-list", logsFree);
 
     memset(&fl, PATTERN, sizeof(fl));
     fl1 = fl;
@@ -150,12 +173,9 @@ MAIN(dbndTest)
            "dbnd has one filter with argument in pre chain");
     testOk((ellCount(&pch->post_chain) == 0), "dbnd has no filter in post chain");
 
-    /* Field logs of type ref and rec: pass any update */
+    /* Field logs of type ref: pass any update */
 
-    testHead("Field logs of type ref and rec");
-    fl1.type = dbfl_type_rec;
-    mustPassTwice(pch, &fl1, "abs field_log=rec", 0., 0);
-
+    testHead("Field logs of type ref");
     fl1.type = dbfl_type_ref;
     mustPassTwice(pch, &fl1, "abs field_log=ref", 0., 0);
 
@@ -176,10 +196,12 @@ MAIN(dbndTest)
 
     dbChannelDelete(pch);
 
+    testDiag("%d field_logs on free-list", db_available_logs());
+
     /* Delta = -1: pass any update */
 
     testHead("Delta = -1: pass any update");
-    testOk(!!(pch = dbChannelCreate("x.VAL{\"dbnd\":{\"d\":-1.0}}")), "dbChannel with plugin dbnd (delta=-1) created");
+    testOk(!!(pch = dbChannelCreate("x.VAL{dbnd:{d:-1.0}}")), "dbChannel with plugin dbnd (delta=-1) created");
     testOk(!(dbChannelOpen(pch)), "dbChannel with plugin dbnd opened");
 
     pfl2 = db_create_read_log(pch);
@@ -192,10 +214,12 @@ MAIN(dbndTest)
     db_delete_field_log(pfl2);
     dbChannelDelete(pch);
 
+    testDiag("%d field_logs on free-list", db_available_logs());
+
     /* Delta = absolute */
 
     testHead("Delta = absolute");
-    testOk(!!(pch = dbChannelCreate("x.VAL{\"dbnd\":{\"d\":3}}")), "dbChannel with plugin dbnd (delta=3) created");
+    testOk(!!(pch = dbChannelCreate("x.VAL{dbnd:{d:3}}")), "dbChannel with plugin dbnd (delta=3) created");
     testOk(!(dbChannelOpen(pch)), "dbChannel with plugin dbnd opened");
 
     pfl2 = db_create_read_log(pch);
@@ -224,10 +248,12 @@ MAIN(dbndTest)
 
     dbChannelDelete(pch);
 
+    testDiag("%d field_logs on free-list", db_available_logs());
+
     /* Delta = relative */
 
     testHead("Delta = relative");
-    testOk(!!(pch = dbChannelCreate("x.VAL{\"dbnd\":{\"m\":\"rel\",\"d\":50}}")),
+    testOk(!!(pch = dbChannelCreate("x.VAL{dbnd:{m:'rel',d:50}}")),
            "dbChannel with plugin dbnd (mode=rel, delta=50) created");
     testOk(!(dbChannelOpen(pch)), "dbChannel with plugin dbnd opened");
 
@@ -274,6 +300,9 @@ MAIN(dbndTest)
     mustPassOnce(pch, pfl2, "rel", 50., 7);
 
     dbChannelDelete(pch);
+
+    logsFinal = db_available_logs();
+    testOk(logsFree == logsFinal, "%d field_logs on free-list", logsFinal);
 
     db_close_events(evtctx);
 

@@ -1,3 +1,9 @@
+######################################################################
+# SPDX-License-Identifier: EPICS
+# EPICS BASE is distributed subject to a Software License Agreement
+# found in file LICENSE that is included with this distribution.
+######################################################################
+
 package DBD;
 
 use strict;
@@ -22,13 +28,14 @@ sub new {
     my $this = {
         'DBD::Breaktable' => {},
         'DBD::Driver'     => {},
-	'DBD::Link'       => {},
+        'DBD::Link'       => {},
         'DBD::Function'   => {},
         'DBD::Menu'       => {},
         'DBD::Recordtype' => {},
         'DBD::Record'     => {},
         'DBD::Registrar'  => {},
         'DBD::Variable'   => {},
+        'RECORDS'         => [],
         'COMMENTS'        => [],
         'POD'             => []
     };
@@ -112,6 +119,19 @@ sub records {
 sub record {
     my ($this, $record_name) = @_;
     return $this->{'DBD::Record'}->{$record_name};
+}
+
+sub add_record {
+    my ($this, $record_name) = @_;
+    push @{$this->{RECORDS}}, $record_name;
+}
+sub record_names {
+    return @{shift->{RECORDS}};
+}
+sub sort_records {
+    my $this = shift;
+    my @sorted = sort @{$this->{RECORDS}};
+    $this->{RECORDS} = \@sorted;
 }
 
 sub registrars {

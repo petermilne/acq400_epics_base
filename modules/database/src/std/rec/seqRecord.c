@@ -3,13 +3,14 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
-* in file LICENSE that is included with this distribution. 
+* in file LICENSE that is included with this distribution.
 \*************************************************************************/
- 
+
 /*
- *      Author:	John Winans
- *      Date:	09-21-92
+ *      Author: John Winans
+ *      Date:   09-21-92
  */
 #include <stddef.h>
 #include <stdlib.h>
@@ -31,7 +32,7 @@
 
 static void processNextLink(seqRecord *prec);
 static long asyncFinish(seqRecord *prec);
-static void processCallback(CALLBACK *arg);
+static void processCallback(epicsCallback *arg);
 
 /* Create RSET - Record Support Entry Table*/
 #define report NULL
@@ -94,7 +95,7 @@ typedef struct linkGrp {
 
 /* The list of link-groups for processing */
 typedef struct seqRecPvt {
-    CALLBACK callback;
+    epicsCallback callback;
     seqRecord *prec;
     linkGrp *grps[NUM_LINKS + 1];   /* List of link-groups */
     int index;                      /* Where we are now */
@@ -156,8 +157,6 @@ static long process(struct dbCommon *pcommon)
                 recGblSetSevr(prec, SOFT_ALARM, INVALID_ALARM);
                 return asyncFinish(prec);
             }
-            if (grpn == 0)
-                return asyncFinish(prec);
 
             lmask = 1 << grpn;
         }
@@ -241,7 +240,7 @@ static long asyncFinish(seqRecord *prec)
 }
 
 
-static void processCallback(CALLBACK *arg)
+static void processCallback(epicsCallback *arg)
 {
     seqRecPvt *pcb;
     seqRecord *prec;
@@ -323,7 +322,7 @@ static long get_graphic_double(DBADDR *paddr, struct dbr_grDouble *pgd)
 {
     seqRecord *prec = (seqRecord *) paddr->precord;
     int fieldOffset = dbGetFieldIndex(paddr) - indexof(DLY1);
-    
+
     if (fieldOffset >= 0)
         switch (fieldOffset & 2) {
         case 0: /* DLYn */

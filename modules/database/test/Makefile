@@ -7,7 +7,7 @@
 # in file LICENSE that is included with this distribution.
 #*************************************************************************
 
-TOP = ..
+TOP = ../../..
 include $(TOP)/configure/CONFIG
 
 DIRS += ioc/db
@@ -19,4 +19,4 @@ DIRS += std/filters
 
 DIRS += tools
 
-include $(TOP)/configure/RULES_TOP
+include $(TOP)/configure/RULES_DIRS

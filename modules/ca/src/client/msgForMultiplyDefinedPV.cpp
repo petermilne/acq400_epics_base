@@ -3,24 +3,24 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
-* EPICS BASE Versions 3.13.7
-* and higher are distributed subject to a Software License Agreement found
-* in file LICENSE that is included with this distribution. 
+* SPDX-License-Identifier: EPICS
+* EPICS BASE is distributed subject to a Software License Agreement found
+* in file LICENSE that is included with this distribution.
 \*************************************************************************/
 
-/*  
+/*
  *
- *                              
+ *
  *                    L O S  A L A M O S
  *              Los Alamos National Laboratory
  *               Los Alamos, New Mexico 87545
- *                                  
+ *
  *  Copyright, 1986, The Regents of the University of California.
- *                                  
- *           
- *	Author Jeffrey O. Hill
- *	johill@lanl.gov
- *	505 665 1831
+ *
+ *
+ *  Author Jeffrey O. Hill
+ *  johill@lanl.gov
+ *  505 665 1831
  */
 
 #include <string>
@@ -30,15 +30,14 @@
 
 #include "errlog.h"
 
-#define epicsExportSharedSymbols
 #include "iocinf.h"
 #include "msgForMultiplyDefinedPV.h"
 #include "cac.h"
 #include "caerr.h" // for ECA_DBLCHNL
 
-msgForMultiplyDefinedPV::msgForMultiplyDefinedPV ( 
+msgForMultiplyDefinedPV::msgForMultiplyDefinedPV (
     ipAddrToAsciiEngine & engine,
-    callbackForMultiplyDefinedPV & cbIn, 
+    callbackForMultiplyDefinedPV & cbIn,
     const char * pChannelName, const char * pAcc ) :
     dnsTransaction ( engine.createTransaction () ), cb ( cbIn )
 {
@@ -58,18 +57,18 @@ void msgForMultiplyDefinedPV::transactionComplete ( const char * pHostNameRej )
     // calls into cac for the notification
     // the msg object (= this) is being deleted as part of the notification
     this->cb.pvMultiplyDefinedNotify ( *this, this->channel, this->acc, pHostNameRej );
-    // !! dont touch 'this' pointer after this point because object has been deleted !!
+    // !! don't touch 'this' pointer after this point because object has been deleted !!
 }
 
-void * msgForMultiplyDefinedPV::operator new ( size_t size, 
+void * msgForMultiplyDefinedPV::operator new ( size_t size,
     tsFreeList < class msgForMultiplyDefinedPV, 16 > & freeList )
 {
     return freeList.allocate ( size );
 }
 
 #ifdef CXX_PLACEMENT_DELETE
-void msgForMultiplyDefinedPV::operator delete ( void *pCadaver, 
-    tsFreeList < class msgForMultiplyDefinedPV, 16 > & freeList ) 
+void msgForMultiplyDefinedPV::operator delete ( void *pCadaver,
+    tsFreeList < class msgForMultiplyDefinedPV, 16 > & freeList )
 {
     freeList.release ( pCadaver, sizeof ( msgForMultiplyDefinedPV ) );
 }

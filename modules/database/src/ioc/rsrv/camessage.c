@@ -6,6 +6,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -37,7 +38,6 @@
 #include "caerr.h"
 #include "net_convert.h"
 
-#define epicsExportSharedSymbols
 #include "asDbLib.h"
 #include "callback.h"
 #include "db_access.h"
@@ -97,7 +97,7 @@ typedef struct rsrv_put_notify {
 /*
  * casCalloc()
  *
- * (dont drop below some max block threshold)
+ * (don't drop below some max block threshold)
  */
 static void *casCalloc(size_t count, size_t size)
 {
@@ -341,7 +341,7 @@ static int bad_tcp_cmd_action ( caHdrLargeArray *mp, void *pPayload,
     log_header ( pCtx, client, mp, pPayload, 0 );
 
     /*
-     *  by default, clients dont recover
+     *  by default, clients don't recover
      *  from this
      */
     SEND_LOCK (client);
@@ -474,8 +474,8 @@ static void no_read_access_event ( struct client *pClient,
     }
     else {
         send_err ( &pevext->msg, status, pClient,
-            "server unable to load read access denied response into protocol buffer PV=\"%s max bytes=%u\"",
-            RECORD_NAME ( pevext->pciu->dbch ), rsrvSizeofLargeBufTCP );
+            "server unable to load read access denied response into protocol buffer PV=\"%s\" dbf=%u count=%u avail=%u max bytes=%u",
+            RECORD_NAME ( pevext->pciu->dbch ), pevext->msg.m_dataType, pevext->msg.m_count, pevext->msg.m_available, rsrvSizeofLargeBufTCP );
     }
 }
 
@@ -503,7 +503,7 @@ static void read_reply ( void *pArg, struct dbChannel *dbch,
     cid = ECA_NORMAL;
 
     /* If the client has requested a zero element count we interpret this as a
-     * request for all avaiable elements.  In this case we initialise the
+     * request for all available elements.  In this case we initialize the
      * header with the maximum element size specified by the database. */
     autosize = pevext->msg.m_count == 0;
     item_count =
@@ -516,8 +516,8 @@ static void read_reply ( void *pArg, struct dbChannel *dbch,
     if ( status != ECA_NORMAL ) {
         send_err ( &pevext->msg, status, pClient,
             "server unable to load read (or subscription update) response "
-            "into protocol buffer PV=\"%s\" max bytes=%u",
-            RECORD_NAME ( dbch ), rsrvSizeofLargeBufTCP );
+            "into protocol buffer PV=\"%s\" dbf=%u count=%ld avail=%u max bytes=%u",
+            RECORD_NAME ( dbch ), pevext->msg.m_dataType, item_count, pevext->msg.m_available, rsrvSizeofLargeBufTCP );
         if ( ! eventsRemaining )
             cas_send_bs_msg ( pClient, FALSE );
         SEND_UNLOCK ( pClient );
@@ -595,7 +595,7 @@ static void read_reply ( void *pArg, struct dbChannel *dbch,
     }
 
     /*
-     * Ensures timely response for events, but does queue 
+     * Ensures timely response for events, but does queue
      * them up like db requests when the OPI does not keep up.
      */
     if ( ! eventsRemaining )
@@ -638,8 +638,8 @@ static int read_action ( caHdrLargeArray *mp, void *pPayloadIn, struct client *p
         mp->m_dataType, mp->m_count, pciu->cid, mp->m_available, &pPayload );
     if ( status != ECA_NORMAL ) {
         send_err ( mp, status, pClient,
-            "server unable to load read response into protocol buffer PV=\"%s\" max bytes=%u",
-            RECORD_NAME ( pciu->dbch ), rsrvSizeofLargeBufTCP );
+            "server unable to load read response into protocol buffer PV=\"%s\" dbf=%u count=%u avail=%u max bytes=%u",
+            RECORD_NAME ( pciu->dbch ), mp->m_dataType, mp->m_count, mp->m_available, rsrvSizeofLargeBufTCP );
         SEND_UNLOCK ( pClient );
         return RSRV_OK;
     }
@@ -679,7 +679,7 @@ static int read_action ( caHdrLargeArray *mp, void *pPayloadIn, struct client *p
     status = caNetConvert (
         mp->m_dataType, pPayload, pPayload,
         TRUE /* host -> net format */, mp->m_count );
-	if ( status != ECA_NORMAL ) {
+    if ( status != ECA_NORMAL ) {
         send_err ( mp, status, pClient, RECORD_NAME ( pciu->dbch ) );
         SEND_UNLOCK ( pClient );
         return RSRV_OK;
@@ -779,7 +779,7 @@ static int write_action ( caHdrLargeArray *mp,
     status = caNetConvert (
         mp->m_dataType, pPayload, pPayload,
         FALSE /* net -> host format */, mp->m_count );
-	if ( status != ECA_NORMAL ) {
+    if ( status != ECA_NORMAL ) {
         log_header ("invalid data type", client, mp, pPayload, 0);
         SEND_LOCK(client);
         send_err(
@@ -849,7 +849,7 @@ static int host_name_action ( caHdrLargeArray *mp, void *pPayload,
     pName = (char *) pPayload;
     size = epicsStrnLen(pName, mp->m_postsize)+1;
     if (size > 512 || size > mp->m_postsize) {
-        log_header ( "bad (very long) host name", 
+        log_header ( "bad (very long) host name",
             client, mp, pPayload, 0 );
         SEND_LOCK(client);
         send_err(
@@ -861,8 +861,16 @@ static int host_name_action ( caHdrLargeArray *mp, void *pPayload,
         return RSRV_ERROR;
     }
 
+    /* after all validation */
+    if(asCheckClientIP) {
+
+        DLOG (2, ( "CAS: host_name_action for \"%s\" ignores client provided host name\n",
+            client->pHostName ) );
+        return RSRV_OK;
+    }
+
     /*
-     * user name will not change if there isnt enough memory
+     * user name will not change if there isn't enough memory
      */
     pMalloc = malloc(size);
     if(!pMalloc){
@@ -928,7 +936,7 @@ static int client_name_action ( caHdrLargeArray *mp, void *pPayload,
     pName = (char *) pPayload;
     size = epicsStrnLen(pName, mp->m_postsize)+1;
     if (size > 512 || size > mp->m_postsize) {
-        log_header ("a very long user name was specified", 
+        log_header ("a very long user name was specified",
             client, mp, pPayload, 0);
         SEND_LOCK(client);
         send_err(
@@ -941,7 +949,7 @@ static int client_name_action ( caHdrLargeArray *mp, void *pPayload,
     }
 
     /*
-     * user name will not change if there isnt enough memory
+     * user name will not change if there isn't enough memory
      */
     pMalloc = malloc(size);
     if(!pMalloc){
@@ -1008,7 +1016,7 @@ unsigned    cid
      * NOTE: This detects the case where the PV id wraps
      * around and we attempt to have two resources on the same id.
      * The lock is applied here because on some architectures the
-     * ++ operator isnt atomic.
+     * ++ operator isn't atomic.
      */
     LOCK_CLIENTQ;
 
@@ -1237,8 +1245,8 @@ static int claim_ciu_action ( caHdrLargeArray *mp,
         return RSRV_OK;
     }
 
-    DLOG ( 2, ("CAS: claim_ciu_action found '%s', type %d, count %d\n",
-        pName, dbChannelCAType(dbch), dbChannelElements(dbch)) );
+    DLOG ( 2, ("CAS: claim_ciu_action found '%s', type %d, count %ld\n",
+        pName, dbChannelExportCAType(dbch), dbChannelElements(dbch)) );
 
     pciu = casCreateChannel (
             client,
@@ -1317,7 +1325,7 @@ static int claim_ciu_action ( caHdrLargeArray *mp,
  {
      struct channel_in_use * pciu = (struct channel_in_use *) ppn->usrPvt;
      struct rsrv_put_notify *pNotify;
- 
+
      if(ppn->status==notifyCanceled) return 0;
  /*
   * No locking in this method because only a dbNotifyCancel could interrupt
@@ -1329,7 +1337,7 @@ static int claim_ciu_action ( caHdrLargeArray *mp,
      return db_put_process(ppn,type,
          pNotify->dbrType,pNotify->pbuffer,pNotify->nRequest);
  }
- 
+
  /*
   * write_notify_done_callback()
   *
@@ -1428,7 +1436,7 @@ static void write_notify_reply ( struct client * pClient )
             msgtmp.m_available, 0 );
         if ( localStatus != ECA_NORMAL ) {
             /*
-             * inability to aquire buffer space
+             * inability to acquire buffer space
              * Indicates corruption
              */
             errlogPrintf("CA server corrupted - put call back(s) discarded\n");
@@ -1562,7 +1570,7 @@ static int rsrvExpandPutNotify (
 
     if ( sizeNeeded > pNotify->valueSize ) {
         /*
-         * try to use the union embeded in the free list
+         * try to use the union embedded in the free list
          * item, but allocate a random sized block if they
          * writing a vector.
          */
@@ -1617,7 +1625,7 @@ void rsrvFreePutNotify ( client *pClient,
         epicsMutexUnlock ( pClient->putNotifyLock );
 
         /*
-         * if any possiblity that the put notify is
+         * if any possibility that the put notify is
          * outstanding then cancel it
          */
         if ( busyTmp ) {
@@ -1728,7 +1736,7 @@ static int write_notify_action ( caHdrLargeArray *mp, void *pPayload,
         if ( ! pciu->pPutNotify ) {
             /*
              * send error and go to next request
-             * if there isnt enough memory left
+             * if there isn't enough memory left
              */
             log_header ( "no memory to initiate put notify",
                 client, mp, pPayload, 0 );
@@ -1752,7 +1760,7 @@ static int write_notify_action ( caHdrLargeArray *mp, void *pPayload,
     status = caNetConvert (
         mp->m_dataType, pPayload, pciu->pPutNotify->pbuffer,
         FALSE /* net -> host format */, mp->m_count );
-	if ( status != ECA_NORMAL ) {
+    if ( status != ECA_NORMAL ) {
         log_header ("invalid data type", client, mp, pPayload, 0);
         putNotifyErrorReply ( client, mp, status );
         return RSRV_ERROR;
@@ -1866,7 +1874,7 @@ static int event_add_action (caHdrLargeArray *mp, void *pPayload, struct client 
      * messages sent by the server).
      */
 
-    DLOG ( 3, ("event_add_action: db_post_single_event (0x%X)\n",
+    DLOG ( 3, ("event_add_action: db_post_single_event (%p)\n",
         pevext->pdbev) );
     db_post_single_event(pevext->pdbev);
 
@@ -1946,7 +1954,7 @@ static int clear_channel_reply ( caHdrLargeArray *mp,
          errMessage(status, RECORD_NAME(pciu->dbch));
          return RSRV_ERROR;
      }
-     
+
      epicsMutexMustLock ( client->chanListLock );
      if ( pciu->state == rsrvCS_inService ||
             pciu->state == rsrvCS_pendConnectResp  ) {
@@ -2136,7 +2144,7 @@ int rsrv_version_reply ( struct client *client )
     SEND_LOCK ( client );
     /*
      * sequence number is specified zero when we copy in the
-     * header because we dont know it until we receive a datagram
+     * header because we don't know it until we receive a datagram
      * from the client
      */
     status = cas_copy_in_header ( client, CA_PROTO_VERSION,
@@ -2183,7 +2191,7 @@ static int search_reply_udp ( caHdrLargeArray *mp, void *pPayload, struct client
 
     /* Exit quickly if channel not on this node */
     if (dbChannelTest(pName)) {
-        DLOG ( 2, ( "CAS: Lookup for channel \"%s\" failed\n", pPayLoad ) );
+        DLOG ( 2, ( "CAS: Lookup for channel \"%s\" failed\n", pName ) );
         return RSRV_OK;
     }
 
@@ -2202,7 +2210,7 @@ static int search_reply_udp ( caHdrLargeArray *mp, void *pPayload, struct client
      * starting with V4.4 the count field is used (abused)
      * to store the minor version number of the client.
      *
-     * New versions dont alloc the channel in response
+     * New versions don't alloc the channel in response
      * to a search request.
      * For these, allocation has been moved to claim_ciu_action().
      *
@@ -2244,7 +2252,7 @@ static int search_reply_udp ( caHdrLargeArray *mp, void *pPayload, struct client
 /*
  *  search_reply_tcp ()
  */
-static int search_reply_tcp ( 
+static int search_reply_tcp (
     caHdrLargeArray *mp, void *pPayload, struct client *client )
 {
     char            *pName = (char *) pPayload;
@@ -2262,7 +2270,7 @@ static int search_reply_tcp (
      * check the sanity of the message
      */
     if (mp->m_postsize<=1) {
-        log_header ("empty PV name in UDP search request?", 
+        log_header ("empty PV name in UDP search request?",
             client, mp, pPayload, 0);
         return RSRV_OK;
     }
@@ -2270,20 +2278,20 @@ static int search_reply_tcp (
 
     /* Exit quickly if channel not on this node */
     if (dbChannelTest(pName)) {
-        DLOG ( 2, ( "CAS: Lookup for channel \"%s\" failed\n", pPayLoad ) );
+        DLOG ( 2, ( "CAS: Lookup for channel \"%s\" failed\n", pName ) );
         if (mp->m_dataType == DOREPLY)
             search_fail_reply ( mp, pPayload, client );
         return RSRV_OK;
     }
 
     /*
-     * stop further use of server if memory becomes scarse
+     * stop further use of server if memory becomes scarce
      */
     spaceAvailOnFreeList =     freeListItemsAvail ( rsrvChanFreeList ) > 0
                             && freeListItemsAvail ( rsrvEventFreeList ) > reasonableMonitorSpace;
-    spaceNeeded = sizeof (struct channel_in_use) + 
+    spaceNeeded = sizeof (struct channel_in_use) +
         reasonableMonitorSpace * sizeof (struct event_ext);
-    if ( ! ( osiSufficentSpaceInPool(spaceNeeded) || spaceAvailOnFreeList ) ) { 
+    if ( ! ( osiSufficentSpaceInPool(spaceNeeded) || spaceAvailOnFreeList ) ) {
         SEND_LOCK(client);
         send_err ( mp, ECA_ALLOCMEM, client, "Server memory exhausted" );
         SEND_UNLOCK(client);
@@ -2291,7 +2299,7 @@ static int search_reply_tcp (
     }
 
     SEND_LOCK ( client );
-    status = cas_copy_in_header ( client, CA_PROTO_SEARCH, 
+    status = cas_copy_in_header ( client, CA_PROTO_SEARCH,
         0, ca_server_port, 0, ~0U, mp->m_available, 0 );
     if ( status != ECA_NORMAL ) {
         SEND_UNLOCK ( client );
@@ -2389,7 +2397,7 @@ int camessage ( struct client *client )
 
     assert(pCaBucket);
 
-    /* drain remnents of large messages that will not fit */
+    /* drain remnants of large messages that will not fit */
     if ( client->recvBytesToDrain ) {
         if ( client->recvBytesToDrain >= client->recv.cnt ) {
             client->recvBytesToDrain -= client->recv.cnt;
@@ -2402,7 +2410,7 @@ int camessage ( struct client *client )
         }
     }
 
-    DLOG ( 2, ( "CAS: Parsing %d(decimal) bytes\n", recv->cnt ) );
+    DLOG ( 2, ( "CAS: Parsing %d(decimal) bytes\n", client->recv.cnt ) );
 
     while ( 1 )
     {
@@ -2464,7 +2472,7 @@ int camessage ( struct client *client )
         }
 
         /*
-         * disconnect clients that dont send 8 byte
+         * disconnect clients that don't send 8 byte
          * aligned payloads
          */
         if ( msgsize & 0x7 ) {

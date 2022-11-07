@@ -4,7 +4,7 @@
 # EPICS BASE is distributed subject to a Software License Agreement found
 # in file LICENSE that is included with this distribution.
 #*************************************************************************
-TOP=../..
+TOP=../../../..
 
 include $(TOP)/configure/CONFIG
 
@@ -27,8 +27,6 @@ PERL_MODULES += DBD/Variable.pm
 PERL_MODULES += EPICS/IOC.pm
 HTMLS += EPICS/IOC.html
 
-PERL_SCRIPTS += databaseModuleDirs.pm
-
 PERL_SCRIPTS += makeIncludeDbd.pl
 
 PERL_SCRIPTS += dbdToMenuH.pl
@@ -42,7 +40,6 @@ HTMLS += dbdToHtml.html
 
 # Build Package Config Files
 
-FINAL_LOCATION ?= $(shell $(PERL) $(TOOLS)/fullPathName.pl $(INSTALL_LOCATION))
 C_CFLAGS += $(filter-out -g,$(filter-out -O%,$(filter-out -W%,$(CPPFLAGS))))
 C_CFLAGS += $(filter-out -g,$(filter-out -O%,$(filter-out -W%,$(CFLAGS))))
 PKGVARS += FINAL_LOCATION OS_CLASS CMPLR_CLASS C_CFLAGS LDFLAGS LDLIBS

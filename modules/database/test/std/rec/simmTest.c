@@ -1,5 +1,6 @@
 /*************************************************************************\
 * Copyright (c) 2017 ITER Organization
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -11,9 +12,11 @@
 #include <testMain.h>
 #include <dbAccess.h>
 #include <epicsTime.h>
+#include <epicsEvent.h>
 #include <epicsThread.h>
 #include <errlog.h>
 #include <alarm.h>
+#include <callback.h>
 
 #include "recSup.h"
 #include "aiRecord.h"
@@ -62,6 +65,10 @@ static char *rawSupp[] = {
     "bi",
     "mbbi",
     "mbbiDirect",
+    "ao",
+    "bo",
+    "mbbo",
+    "mbboDirect"
 };
 
 static
@@ -75,7 +82,10 @@ int hasRawSimmSupport(const char *rectype) {
 #define PVNAMELENGTH 60
 static char nameVAL[PVNAMELENGTH];
 static char nameB0[PVNAMELENGTH];
+static char nameONVL[PVNAMELENGTH];
 static char nameRVAL[PVNAMELENGTH];
+static char nameROFF[PVNAMELENGTH];
+static char nameSHFT[PVNAMELENGTH];
 static char nameSGNL[PVNAMELENGTH];
 static char nameSIMM[PVNAMELENGTH];
 static char nameSIML[PVNAMELENGTH];
@@ -97,7 +107,8 @@ static char nameSimvalLEN[PVNAMELENGTH];
 static
 void setNames(const char *name)
 {
-    SETNAME(VAL); SETNAME(B0); SETNAME(RVAL); SETNAME(SGNL);
+    SETNAME(VAL); SETNAME(B0); SETNAME(ONVL);
+    SETNAME(RVAL); SETNAME(ROFF); SETNAME(SHFT); SETNAME(SGNL);
     SETNAME(SVAL); SETNAME(SIMM); SETNAME(SIML); SETNAME(SIOL); SETNAME(SIMS);
     SETNAME(SCAN); SETNAME(PROC); SETNAME(PACT);
     SETNAME(STAT); SETNAME(SEVR); SETNAME(TSE);
@@ -264,6 +275,7 @@ void testSvalRead(const char *name,
                   const epicsTimeStamp *svtime)
 {
     epicsTimeStamp last;
+    double diff;
 
     if (strcmp(name, "histogram") == 0)
         strcpy(nameVAL, nameSGNL);
@@ -335,7 +347,8 @@ void testSvalRead(const char *name,
     }
 
     /* My timestamp must be later than simval's */
-    testOk(epicsTimeLessThan(svtime, mytime), "simval time < my time [TSE = 0]");
+    diff = epicsTimeDiffInSeconds(mytime, svtime);
+    testOk(diff >= 0.0, "simval time <= my time [TSE = 0] (%.9f sec)", diff);
 
     testDiag("for TSE=-2 (from device) and simmYES, take time stamp from IOC or input link");
 
@@ -351,7 +364,8 @@ void testSvalRead(const char *name,
     /* With TSE=-2 and no SIOL, timestamp is taken from IOC */
     testdbPutFieldOk(nameSIOL, DBR_STRING, "");
     testdbPutFieldOk(namePROC, DBR_LONG, 0);
-    testOk(epicsTimeLessThan(&last, mytime), "new time stamp from IOC [TSE = -2, no SIOL]");
+    diff = epicsTimeDiffInSeconds(mytime, &last);
+    testOk(diff >= 0.0, "new time stamp from IOC [TSE = -2, no SIOL] (%.9f sec)", diff);
 
     /* Reset TSE */
     testdbPutFieldOk(nameTSE, DBR_SHORT, 0);
@@ -366,6 +380,7 @@ void testSiolWrite(const char *name,
                    const epicsTimeStamp *mytime)
 {
     epicsTimeStamp now;
+    double diff;
 
     testDiag("## Writing through SIOL ##");
 
@@ -394,11 +409,43 @@ void testSiolWrite(const char *name,
         testdbPutFieldOk(nameVAL, DBR_LONG, 1);
     testdbGetFieldEqual(nameSimval, DBR_USHORT, 1);
 
+    if (hasRawSimmSupport(name)) {
+        testDiag("in simmRAW, RVAL should be written to SIOL");
+        testDiag("SIML overrides SIMM, disable it here");
+        testdbPutFieldOk(nameSIML, DBR_STRING, "");
+        testdbPutFieldOk(nameSIMM, DBR_STRING, "RAW");
+        if (strcmp(name, "ao") == 0) {
+            testdbPutFieldOk(nameROFF, DBR_ULONG, 2);
+            testdbPutFieldOk(nameVAL, DBR_DOUBLE, 5.);
+            testdbGetFieldEqual(nameRVAL, DBR_LONG, 3);
+            testdbGetFieldEqual(nameSimval, DBR_DOUBLE, 3.);
+        } else if (strcmp(name, "bo") == 0) {
+            boRecord *prec;
+            prec = (boRecord *) testdbRecordPtr("bo");
+            prec->mask = 0x55;
+            testdbPutFieldOk(nameVAL, DBR_USHORT, 1);
+            testdbGetFieldEqual(nameRVAL, DBR_ULONG, 0x55);
+            testdbGetFieldEqual(nameSimval, DBR_ULONG, 0x55);
+        } else if (strcmp(name, "mbbo") == 0) {
+            testdbPutFieldOk(nameONVL, DBR_ULONG, 5);
+            testdbPutFieldOk(nameVAL, DBR_UCHAR, 1);
+            testdbGetFieldEqual(nameRVAL, DBR_ULONG, 5);
+            testdbGetFieldEqual(nameSimval, DBR_UCHAR, 5);
+        } else if (strcmp(name, "mbboDirect") == 0) {
+            testdbPutFieldOk(nameSHFT, DBR_ULONG, 2);
+            testdbPutFieldOk(nameB0, DBR_UCHAR, 1);
+            testdbGetFieldEqual(nameRVAL, DBR_ULONG, 4);
+            testdbGetFieldEqual(nameSimval, DBR_UCHAR, 4);
+        }
+        testdbPutFieldOk(nameSIML, DBR_STRING, nameSimmode);
+    }
+
     /* Set TSE to -2 (from device) and reprocess: timestamp is taken from IOC */
     epicsTimeGetCurrent(&now);
     testdbPutFieldOk(nameTSE, DBR_SHORT, -2);
     testdbPutFieldOk(namePROC, DBR_LONG, 0);
-    testOk(epicsTimeLessThan(&now, mytime), "new time stamp from IOC [TSE = -2]");
+    diff = epicsTimeDiffInSeconds(mytime, &now);
+    testOk(diff >= 0.0, "new time stamp from IOC [TSE = -2] (%.9f sec)", diff);
 
     /* Reset TSE */
     testdbPutFieldOk(nameTSE, DBR_SHORT, 0);
@@ -408,6 +455,15 @@ void testSiolWrite(const char *name,
  * Asynchronous processing using simm:DELAY
  */
 
+static void
+ping(CALLBACK *pcb)
+{
+    epicsEventId ev;
+    callbackGetUser(ev, pcb);
+
+    epicsEventMustTrigger(ev);
+}
+
 static
 void testSimmDelay(const char *name,
                    epicsFloat64 *psdly,
@@ -415,6 +471,15 @@ void testSimmDelay(const char *name,
 {
     epicsTimeStamp now;
     const double delay = 0.01;  /* 10 ms */
+    double diff;
+    epicsEventId poked;
+    CALLBACK cb;
+
+    memset(&cb, 0, sizeof(CALLBACK));
+    poked = epicsEventMustCreate(epicsEventEmpty);
+    callbackSetCallback(ping, &cb);
+    callbackSetPriority(priorityLow, &cb);
+    callbackSetUser(poked, &cb);
 
     testDiag("## Asynchronous processing with simm:DELAY ##");
 
@@ -427,7 +492,8 @@ void testSimmDelay(const char *name,
     epicsTimeGetCurrent(&now);
     testdbPutFieldOk(namePROC, DBR_LONG, 0);
     testdbGetFieldEqual(namePACT, DBR_USHORT, 0);
-    testOk(epicsTimeLessThan(&now, mytime), "time stamp is recent");
+    diff = epicsTimeDiffInSeconds(mytime, &now);
+    testOk(diff >= 0.0, "time stamp is recent (%.9f sec)", diff);
 
     /* Process in simmYES: asynchronous */
     testDiag("simm:DELAY and simmYES processes asynchronously");
@@ -435,9 +501,11 @@ void testSimmDelay(const char *name,
     testdbPutFieldOk(namePROC, DBR_LONG, 0);
     testdbGetFieldEqual(namePACT, DBR_USHORT, 1);
     epicsTimeGetCurrent(&now);
-    epicsThreadSleep(1.75*delay);
+    callbackRequestDelayed(&cb, 1.5 * delay);
+    epicsEventWait(poked);
     testdbGetFieldEqual(namePACT, DBR_USHORT, 0);
-    testOk(epicsTimeLessThan(&now, mytime), "time stamp taken from second pass processing");
+    diff = epicsTimeDiffInSeconds(mytime, &now);
+    testOk(diff >= 0.0, "time stamp is recent (%.9f sec)", diff);
 
     /* Reset delay */
     *psdly = -1.;
@@ -489,7 +557,7 @@ void testAllRecTypes(void)
 
 MAIN(simmTest)
 {
-    testPlan(1176);
+    testPlan(1267);
     startSimmTestIoc("simmTest.db");
 
     testSimmSetup();

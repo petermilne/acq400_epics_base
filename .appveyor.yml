@@ -1,10 +1,17 @@
-# AppVeyor configuration for EPICS Base
-
-# Ralph Lange <ralph.lange@gmx.de>
-# Copyright (c) 2016-2017 ITER Organization
+# Appveyor configuration file for EPICS Base 7 builds
+# (see also https://github.com/epics-base/ci-scripts)
 
 # Version format
 version: base-{branch}-{build}
+
+#---------------------------------#
+#       build cache               #
+#---------------------------------#
+# The AppVeyor cache allowance is way too small (1GB per account across all projects, branches and jobs)
+# to be used for the dependency builds.
+
+cache:
+  - C:\Users\appveyor\.tools
 
 #---------------------------------#
 #       repository cloning        #
@@ -16,19 +23,25 @@ init:
   - git config --global core.autocrlf true
 
 # Set clone depth (do not fetch complete history)
-clone_depth: 50
+clone_depth: 5
 
 # Skipping commits affecting only specific files
 skip_commits:
   files:
     - 'documentation/*'
-    - 'templates/*'
+    - 'startup/*'
+    - '.github/*'
+    - '.tools/*'
+    - '.gitattributes'
+    - '.lgtm.yml'
     - '**/*.html'
     - '**/*.md'
 
 #---------------------------------#
 #   build matrix configuration    #
 #---------------------------------#
+
+image: Visual Studio 2015
 
 # Build Configurations: dll/static, regular/debug
 configuration:
@@ -37,29 +50,49 @@ configuration:
   - dynamic-debug
   - static-debug
 
-# Environment variables: compiler toolchain
+# Environment variables: compiler toolchain, base version, setup file, ...
 environment:
-  matrix:
-  - TOOLCHAIN: 10.0
-  - TOOLCHAIN: 11.0
-  - TOOLCHAIN: 12.0
-  - TOOLCHAIN: 14.0
-  - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
-    TOOLCHAIN: 2017
-  - TOOLCHAIN: cygwin
-  - TOOLCHAIN: mingw
+  # common / default variables for all jobs
+  SETUP_PATH: .ci-local:.ci
+  BASE: SELF
+  EPICS_TEST_IMPRECISE_TIMING: YES
 
-# Platform: architecture
+  matrix:
+  - CMP: vs2019
+    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+  - CMP: vs2017
+    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+  - CMP: vs2015
+  - CMP: vs2013
+  - CMP: vs2012
+  - CMP: vs2010
+  - CMP: gcc
+    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+
+# Platform: processor architecture
 platform:
   - x86
   - x64
 
-# Matrix configuration: allow specific failing jobs
+# Matrix configuration: exclude sets of jobs
 matrix:
   exclude:
-  # VS Express installs don't have the 64 bit compiler
+  # VS2012 and older installs don't have the 64 bit compiler
   - platform: x64
-    TOOLCHAIN: 10.0
+    CMP: vs2012
+  - platform: x64
+    CMP: vs2010
+  # Exclude more jobs to reduce build time
+  # Skip 32-bit for "middle-aged" compilers
+  - platform: x86
+    CMP: vs2017
+  - platform: x86
+    CMP: vs2015
+  # MinGW debug builds use the same libraries, unlike VS
+  - configuration: dynamic-debug
+    CMP: gcc
+  - configuration: static-debug
+    CMP: gcc
 
 #---------------------------------#
 #     building & testing          #
@@ -67,13 +100,38 @@ matrix:
 
 install:
   - cmd: git submodule update --init --recursive
-  - cmd: .ci/appveyor-prepare.bat
+  - cmd: pip install git+https://github.com/mdavidsaver/ci-core-dumper#egg=ci-core-dumper
+  - cmd: python .ci/cue.py prepare
 
 build_script:
-  - cmd: .ci/appveyor-make.bat
+  - cmd: python .ci/cue.py build
 
 test_script:
-  - cmd: .ci/appveyor-make.bat runtests
+  - cmd: python -m ci_core_dumper install
+  - cmd: python .ci/cue.py -T 20M test
+
+on_finish:
+  - ps: Get-ChildItem *.tap -Recurse -Force | % { Push-AppveyorArtifact $_.FullName -FileName $_.Name }
+  - cmd: python .ci/cue.py -T 5M test-results
+
+on_failure:
+  - cmd: python -m ci_core_dumper report
+
+#---------------------------------#
+#         debugging               #
+#---------------------------------#
+
+## if you want to connect by remote desktop to a failed build, uncomment these lines
+## note that you will need to connect within the usual build timeout limit (60 minutes)
+## so you may want to adjust the build matrix above to just build the one of interest
+
+# print the connection info
+#init:
+#  - ps: iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+
+# block a failed build (until the watchdog barks)
+#on_failure:
+#  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
 
 #---------------------------------#
 #         notifications           #
@@ -81,6 +139,9 @@ test_script:
 
 notifications:
 
-  - provider: Slack
-    incoming_webhook:
-      secure: RYOm3FIUYeZGjWKaeTVKwq+C3fzK54AKwbmAoECED45mex3lN+8HmrC845a6mg9xPUJ/ND51RopWVaKDD9/UzaM0SO195RQLKqUTIUafiuM=
+  - provider: Email
+    to:
+      - core-talk@aps.anl.gov
+    on_build_success: false
+
+  - provider: GitHubPullRequest

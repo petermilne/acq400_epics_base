@@ -1,6 +1,7 @@
 /*************************************************************************\
 * Copyright (c) 2012 UChicago Argonne LLC, as Operator of Argonne
 *     National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -381,8 +382,14 @@ MAIN(epicsStdlibTest)
 
     testOk(epicsParseFloat("1e-40", &f, NULL) == S_stdlib_underflow,
         "Float '1e-40' => underflow");
+#ifdef vxWorks
+    testTodoBegin("Not detected on VxWorks");
+#endif
     testOk(epicsParseDouble("1e-330", &d, NULL) == S_stdlib_underflow,
         "Double '1e-330' => underflow");
+#ifdef vxWorks
+    testTodoEnd();
+#endif
 
     testOk(epicsScanFloat("1e30", &f) && fabs(f - 1e30) < 1e24,
         "Float '1e30'");

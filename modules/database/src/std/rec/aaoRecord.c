@@ -1,6 +1,7 @@
 /*************************************************************************\
 * Copyright (c) 2002 Southeastern Universities Research Association, as
 *     Operator of Thomas Jefferson National Accelerator Facility.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -43,6 +44,7 @@
 #include "special.h"
 #include "cantProceed.h"
 #include "menuYesNo.h"
+#include "menuOmsl.h"
 
 #define GEN_SIZE_OFFSET
 #include "aaoRecord.h"
@@ -90,22 +92,14 @@ rset aaoRSET={
 };
 epicsExportAddress(rset,aaoRSET);
 
-struct aaodset { /* aao dset */
-    long      number;
-    DEVSUPFUN dev_report;
-    DEVSUPFUN init;
-    DEVSUPFUN init_record; /*returns: (-1,0)=>(failure,success)*/
-    DEVSUPFUN get_ioint_info;
-    DEVSUPFUN write_aao; /*returns: (-1,0)=>(failure,success)*/
-};
-
 static void monitor(aaoRecord *);
+static long fetchValue(aaoRecord *, int);
 static long writeValue(aaoRecord *);
 
 static long init_record(struct dbCommon *pcommon, int pass)
 {
     struct aaoRecord *prec = (struct aaoRecord *)pcommon;
-    struct aaodset *pdset = (struct aaodset *)(prec->dset);
+    aaodset *pdset = (aaodset *)(prec->dset);
     long status;
 
     /* must have dset defined */
@@ -130,9 +124,9 @@ static long init_record(struct dbCommon *pcommon, int pass)
            not change after links are established before pass 1
         */
 
-        if (pdset->init_record) {
+        if (pdset->common.init_record) {
             /* init_record may set the bptr to point to the data */
-            if ((status = pdset->init_record(prec)))
+            if ((status = pdset->common.init_record(pcommon)))
                 return status;
         }
         if (!prec->bptr) {
@@ -146,17 +140,17 @@ static long init_record(struct dbCommon *pcommon, int pass)
     recGblInitSimm(pcommon, &prec->sscn, &prec->oldsimm, &prec->simm, &prec->siml);
 
     /* must have write_aao function defined */
-    if (pdset->number < 5 || pdset->write_aao == NULL) {
+    if (pdset->common.number < 5 || pdset->write_aao == NULL) {
         recGblRecordError(S_dev_missingSup, prec, "aao: init_record");
         return S_dev_missingSup;
     }
-    return 0;
+    return fetchValue(prec, 1);
 }
 
 static long process(struct dbCommon *pcommon)
 {
     struct aaoRecord *prec = (struct aaoRecord *)pcommon;
-    struct aaodset *pdset = (struct aaodset *)(prec->dset);
+    aaodset *pdset = (aaodset *)(prec->dset);
     long status;
     unsigned char pact = prec->pact;
 
@@ -166,12 +160,25 @@ static long process(struct dbCommon *pcommon)
         return S_dev_missingSup;
     }
 
+    if ( !pact ) {
+        prec->udf = FALSE;
+
+        if(!!(status = fetchValue(prec, 0)))
+            return status;
+
+        /* Update the timestamp before writing output values so it
+         * will be up to date if any downstream records fetch it via TSEL */
+        recGblGetTimeStampSimm(prec, prec->simm, NULL);
+    }
+
     status = writeValue(prec); /* write the data */
     if (!pact && prec->pact) return 0;
     prec->pact = TRUE;
 
-    prec->udf = FALSE;
-    recGblGetTimeStampSimm(prec, prec->simm, NULL);
+    if ( pact ) {
+        /* Update timestamp again for asynchronous devices */
+        recGblGetTimeStampSimm(prec, prec->simm, NULL);
+    }
 
     monitor(prec);
     /* process the forward scan link record */
@@ -337,9 +344,37 @@ static void monitor(aaoRecord *prec)
         db_post_events(prec, &prec->val, monitor_mask);
 }
 
+static long fetchValue(aaoRecord *prec, int init)
+{
+    int isConst;
+    long status;
+    long nReq = prec->nelm;
+
+    if(prec->omsl!=menuOmslclosed_loop)
+        return 0;
+
+    isConst = dbLinkIsConstant(&prec->dol);
+
+    if(init && isConst) {
+        status = dbLoadLinkArray(&prec->dol, prec->ftvl, prec->bptr, &nReq);
+
+    } else if(!init && !isConst) {
+        status = dbGetLink(&prec->dol, prec->ftvl, prec->bptr, 0, &nReq);
+
+    } else {
+        return 0;
+    }
+
+    if(!status) {
+        prec->nord = nReq;
+        prec->udf = FALSE;
+    }
+    return status;
+}
+
 static long writeValue(aaoRecord *prec)
 {
-    struct aaodset *pdset = (struct aaodset *) prec->dset;
+    aaodset *pdset = (aaodset *) prec->dset;
     long status = 0;
 
     if (!prec->pact) {
@@ -355,7 +390,7 @@ static long writeValue(aaoRecord *prec)
     case menuYesNoYES: {
         recGblSetSevr(prec, SIMM_ALARM, prec->sims);
         if (prec->pact || (prec->sdly < 0.)) {
-            /* Device suport is responsible for buffer
+            /* Device support is responsible for buffer
                which might be write-only so we may not be
                allowed to call dbPutLink on it.
                Maybe also device support has an advanced
@@ -367,9 +402,9 @@ static long writeValue(aaoRecord *prec)
             status = pdset->write_aao(prec);
             prec->pact = FALSE;
         } else { /* !prec->pact && delay >= 0. */
-            CALLBACK *pvt = prec->simpvt;
+            epicsCallback *pvt = prec->simpvt;
             if (!pvt) {
-                pvt = calloc(1, sizeof(CALLBACK)); /* very lazy allocation of callback structure */
+                pvt = calloc(1, sizeof(epicsCallback)); /* very lazy allocation of callback structure */
                 prec->simpvt = pvt;
             }
             if (pvt) callbackRequestProcessCallbackDelayed(pvt, prec->prio, prec, prec->sdly);

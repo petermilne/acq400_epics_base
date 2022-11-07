@@ -1,5 +1,6 @@
 /*************************************************************************\
 * Copyright (c) 2017 Michael Davidsaver
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -154,7 +155,7 @@ MAIN(ipAddrToAsciiTest)
     }
     doCancel();
     // TODO: somehow test cancel of in-progress callback
-    // allow time for any un-canceled transcations to crash us...
+    // allow time for any un-canceled transactions to crash us...
     epicsThreadSleep(1.0);
 
 #ifdef __linux__

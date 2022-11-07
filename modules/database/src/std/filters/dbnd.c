@@ -3,6 +3,7 @@
 * Copyright (c) 2010 Helmholtz-Zentrum Berlin
 *     für Materialien und Energie GmbH.
 * Copyright (c) 2014 ITER Organization.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -19,7 +20,7 @@
 #include <chfPlugin.h>
 #include <recGbl.h>
 #include <epicsExit.h>
-#include <db_field_log.h>
+#include <dbAccess.h>
 #include <epicsExport.h>
 
 typedef struct myStruct {
@@ -80,8 +81,8 @@ static db_field_log* filter(void* pvt, dbChannel *chan, db_field_log *pfl) {
         status = dbFastGetConvertRoutine[pfl->field_type][DBR_DOUBLE]
                  (localAddr.pfield, (void*) &val, &localAddr);
         if (!status) {
-            send = 0;
-            recGblCheckDeadband(&my->last, val, my->hyst, &send, 1);
+            send = pfl->mask & ~(DBE_VALUE|DBE_LOG);
+            recGblCheckDeadband(&my->last, val, my->hyst, &send, pfl->mask & (DBE_VALUE|DBE_LOG));
             if (send && my->mode == 1) {
                 my->hyst = val * my->cval/100.;
             }

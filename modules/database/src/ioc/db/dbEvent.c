@@ -6,6 +6,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -36,7 +37,6 @@
 
 #include "caeventmask.h"
 
-#define epicsExportSharedSymbols
 #include "dbAccessDefs.h"
 #include "dbAddr.h"
 #include "dbBase.h"
@@ -49,7 +49,13 @@
 #include "link.h"
 #include "special.h"
 
-#define EVENTSPERQUE    32
+/* Queue size based on Ethernet MTU of 1500 bytes.
+ * Assume <=66 bytes of ethernet+IP+TCP overhead
+ * and 40 byte CA messages (DBF_TIME_DOUBLE).
+ *
+ * (1500-66)/40 -> 35
+ */
+#define EVENTSPERQUE    36
 #define EVENTENTRIES    4      /* the number of que entries for each event */
 #define EVENTQUESIZE    (EVENTENTRIES  * EVENTSPERQUE)
 #define EVENTQEMPTY     ((struct evSubscrip *)NULL)
@@ -84,7 +90,7 @@ struct event_user {
     void                *extralabor_arg;/* parameter to above */
 
     epicsThreadId       taskid;         /* event handler task id */
-    struct evSubscrip   *pSuicideEvent; /* event that is deleteing itself */
+    struct evSubscrip   *pSuicideEvent; /* event that is deleting itself */
     unsigned            queovr;         /* event que overflow count */
     unsigned char       pendexit;       /* exit pend task */
     unsigned char       extra_labor;    /* if set call extra labor func */
@@ -96,7 +102,7 @@ struct event_user {
 
 /*
  * Reliable intertask communication requires copying the current value of the
- * channel for later queing so 3 stepper motor steps of 10 each do not turn
+ * channel for later queuing so 3 stepper motor steps of 10 each do not turn
  * into only 10 or 20 total steps part of the time.
  */
 
@@ -153,7 +159,7 @@ int dbel ( const char *pname, unsigned level )
     if ( ! pname ) return DB_EVENT_OK;
     status = dbNameToAddr ( pname, &addr );
     if ( status != 0 ) {
-	    errMessage ( status, " dbNameToAddr failed" );
+        errMessage ( status, " dbNameToAddr failed" );
         return DB_EVENT_ERROR;
     }
 
@@ -162,7 +168,7 @@ int dbel ( const char *pname, unsigned level )
     pevent = (struct evSubscrip *) ellFirst ( &addr.precord->mlis );
 
     if ( ! pevent ) {
-	    printf ( "\"%s\": No PV event subscriptions ( monitors ).\n", pname );
+        printf ( "\"%s\": No PV event subscriptions ( monitors ).\n", pname );
         UNLOCKREC (addr.precord);
         return DB_EVENT_OK;
     }
@@ -174,14 +180,14 @@ int dbel ( const char *pname, unsigned level )
         pdbFldDes = dbChannelFldDes(pevent->chan);
 
         if ( level > 0 ) {
-	        printf ( "%4.4s", pdbFldDes->name );
+            printf ( "%4.4s", pdbFldDes->name );
 
-	        printf ( " { " );
-                if ( pevent->select & DBE_VALUE ) printf( "VALUE " );
-                if ( pevent->select & DBE_LOG ) printf( "LOG " );
-                if ( pevent->select & DBE_ALARM ) printf( "ALARM " );
-                if ( pevent->select & DBE_PROPERTY ) printf( "PROPERTY " );
-	        printf ( "}" );
+            printf ( " { " );
+            if ( pevent->select & DBE_VALUE ) printf( "VALUE " );
+            if ( pevent->select & DBE_LOG ) printf( "LOG " );
+            if ( pevent->select & DBE_ALARM ) printf( "ALARM " );
+            if ( pevent->select & DBE_PROPERTY ) printf( "PROPERTY " );
+            printf ( "}" );
 
             if ( pevent->npend ) {
                 printf ( " undelivered=%ld", pevent->npend );
@@ -236,7 +242,7 @@ int dbel ( const char *pname, unsigned level )
                     ( void * ) pevent->ev_que->evUser );
             }
 
-	        printf( "\n" );
+            printf( "\n" );
         }
 
             pevent = (struct evSubscrip *) ellNext ( &pevent->node );
@@ -248,18 +254,15 @@ int dbel ( const char *pname, unsigned level )
 }
 
 /*
- * DB_INIT_EVENTS()
+ * DB_INIT_EVENT_FREELISTS()
  *
  *
- * Initialize the event facility for this task. Must be called at least once
- * by each task which uses the db event facility
+ * Initialize the free lists used by the event facility.
+ * Safe to be called multiple times.
  *
- * returns: ptr to event user block or NULL if memory can't be allocated
  */
-dbEventCtx db_init_events (void)
+void db_init_event_freelists (void)
 {
-    struct event_user * evUser;
-
     if (!stopSync) {
         stopSync = epicsMutexMustCreate();
     }
@@ -280,6 +283,22 @@ dbEventCtx db_init_events (void)
         freeListInitPvt(&dbevFieldLogFreeList,
             sizeof(struct db_field_log),2048);
     }
+}
+
+/*
+ * DB_INIT_EVENTS()
+ *
+ *
+ * Initialize the event facility for this task. Must be called at least once
+ * by each task which uses the db event facility
+ *
+ * returns: ptr to event user block or NULL if memory can't be allocated
+ */
+dbEventCtx db_init_events (void)
+{
+    struct event_user * evUser;
+
+    db_init_event_freelists();
 
     evUser = (struct event_user *)
         freeListCalloc(dbevEventUserFreeList);
@@ -328,7 +347,7 @@ fail:
 }
 
 
-epicsShareFunc void db_cleanup_events(void)
+DBCORE_API void db_cleanup_events(void)
 {
     if(dbevEventUserFreeList) freeListCleanup(dbevEventUserFreeList);
     dbevEventUserFreeList = NULL;
@@ -373,6 +392,7 @@ void db_close_events (dbEventCtx ctx)
         epicsEventSignal(evUser->ppendsem);
         /* wait for task to exit */
         epicsEventMustWait(evUser->pexitsem);
+        epicsThreadMustJoin(evUser->taskid);
 
         epicsMutexMustLock ( evUser->lock );
     }
@@ -396,7 +416,7 @@ void db_close_events (dbEventCtx ctx)
  */
 static struct event_que * create_ev_que ( struct event_user * const evUser )
 {
-    struct event_que * const ev_que = (struct event_que *) 
+    struct event_que * const ev_que = (struct event_que *)
         freeListCalloc ( dbevEventQueueFreeList );
     if ( ! ev_que ) {
         return NULL;
@@ -440,7 +460,7 @@ dbEventSubscription db_add_event (
     while ( TRUE ) {
         int success = 0;
         LOCKEVQUE ( ev_que );
-        success = ( ev_que->quota + ev_que->nCanceled < 
+        success = ( ev_que->quota + ev_que->nCanceled <
                                 EVENTQUESIZE - EVENTENTRIES );
         if ( success ) {
             ev_que->quota += EVENTENTRIES;
@@ -565,7 +585,7 @@ void db_cancel_event (dbEventSubscription event)
     /*
      * flag the event as canceled by NULLing out the callback handler
      *
-     * make certain that the event isnt being accessed while
+     * make certain that the event isn't being accessed while
      * its call back changes
      */
     LOCKEVQUE (pevent->ev_que);
@@ -679,27 +699,24 @@ int db_post_extra_labor (dbEventCtx ctx)
     return DB_EVENT_OK;
 }
 
-/*
- *  DB_CREATE_EVENT_LOG()
- *
- *  NOTE: This assumes that the db scan lock is already applied
- *        (as it copies data from the record)
- */
-db_field_log* db_create_event_log (struct evSubscrip *pevent)
+static db_field_log* db_create_field_log (struct dbChannel *chan, int use_val)
 {
     db_field_log *pLog = (db_field_log *) freeListCalloc(dbevFieldLogFreeList);
 
     if (pLog) {
-        struct dbChannel *chan = pevent->chan;
         struct dbCommon  *prec = dbChannelRecord(chan);
-        pLog->ctx = dbfl_context_event;
-        if (pevent->useValque) {
+        pLog->stat = prec->stat;
+        pLog->sevr = prec->sevr;
+        strncpy(pLog->amsg, prec->amsg, sizeof(pLog->amsg)-1);
+        pLog->amsg[sizeof(pLog->amsg)-1] = '\0';
+        pLog->time = prec->time;
+        pLog->utag = prec->utag;
+        pLog->field_type  = dbChannelFieldType(chan);
+        pLog->field_size  = dbChannelFieldSize(chan);
+        pLog->no_elements = dbChannelElements(chan);
+
+        if (use_val) {
             pLog->type = dbfl_type_val;
-            pLog->stat = prec->stat;
-            pLog->sevr = prec->sevr;
-            pLog->time = prec->time;
-            pLog->field_type  = dbChannelFieldType(chan);
-            pLog->no_elements = dbChannelElements(chan);
             /*
              * use memcpy to avoid a bus error on
              * union copy of char in the db at an odd
@@ -709,8 +726,31 @@ db_field_log* db_create_event_log (struct evSubscrip *pevent)
                    dbChannelField(chan),
                    dbChannelFieldSize(chan));
         } else {
-            pLog->type = dbfl_type_rec;
+            pLog->type = dbfl_type_ref;
+
+            /* don't make a copy yet, just reference the field value */
+            pLog->u.r.field = dbChannelField(chan);
+            /* indicate field value still owned by record */
+            pLog->dtor = NULL;
+            /* no private data yet, may be set by a filter */
+            pLog->u.r.pvt = NULL;
         }
+    }
+    return pLog;
+}
+
+/*
+ *  DB_CREATE_EVENT_LOG()
+ *
+ *  NOTE: This assumes that the db scan lock is already applied
+ *        (as it calls rset->get_array_info)
+ */
+db_field_log* db_create_event_log (struct evSubscrip *pevent)
+{
+    db_field_log *pLog = db_create_field_log(pevent->chan, pevent->useValque);
+    if (pLog) {
+        pLog->mask = pevent->select;
+        pLog->ctx  = dbfl_context_event;
     }
     return pLog;
 }
@@ -721,11 +761,12 @@ db_field_log* db_create_event_log (struct evSubscrip *pevent)
  */
 db_field_log* db_create_read_log (struct dbChannel *chan)
 {
-    db_field_log *pLog = (db_field_log *) freeListCalloc(dbevFieldLogFreeList);
-
+    db_field_log *pLog = db_create_field_log(chan,
+        dbChannelElements(chan) == 1 &&
+        dbChannelSpecial(chan) != SPC_DBADDR &&
+        dbChannelFieldSize(chan) <= sizeof(union native_value));
     if (pLog) {
         pLog->ctx  = dbfl_context_read;
-        pLog->type = dbfl_type_rec;
     }
     return pLog;
 }
@@ -748,15 +789,13 @@ static void db_queue_event_log (evSubscrip *pevent, db_field_log *pLog)
 
     LOCKEVQUE (ev_que);
 
-    /*
-     * if we have an event on the queue and both the last
-     * event on the queue and the current event are emtpy
-     * (i.e. of type dbfl_type_rec), simply ignore duplicate
-     * events (saving empty events serves no purpose)
+    /* if we have an event on the queue and both the last
+     * event on the queue and the current event reference
+     * a record field, simply ignore duplicate events.
      */
-    if (pevent->npend > 0u &&
-        (*pevent->pLastLog)->type == dbfl_type_rec &&
-        pLog->type == dbfl_type_rec) {
+    if (pevent->npend > 0u
+            && !dbfl_has_copy(*pevent->pLastLog)
+            && !dbfl_has_copy(pLog)) {
         db_delete_field_log(pLog);
         UNLOCKEVQUE (ev_que);
         return;
@@ -784,7 +823,7 @@ static void db_queue_event_log (evSubscrip *pevent, db_field_log *pLog)
         pevent->nreplace++;
         /*
          * the event task has already been notified about
-         * this so we dont need to post the semaphore
+         * this so we don't need to post the semaphore
          */
         firstEventFlag = 0;
     }
@@ -817,7 +856,7 @@ static void db_queue_event_log (evSubscrip *pevent, db_field_log *pLog)
     UNLOCKEVQUE (ev_que);
 
     /*
-     * its more efficent to notify the event handler
+     * its more efficient to notify the event handler
      * only after the event is ready and the lock
      * is off in case it runs at a higher priority
      * than the caller here.
@@ -859,6 +898,8 @@ unsigned int    caEventMask
         if ( (dbChannelField(pevent->chan) == (void *)pField || pField==NULL) &&
             (caEventMask & pevent->select)) {
             db_field_log *pLog = db_create_event_log(pevent);
+            if(pLog)
+                pLog->mask = caEventMask & pevent->select;
             pLog = dbChannelRunPreChain(pevent->chan, pLog);
             if (pLog) db_queue_event_log(pevent, pLog);
         }
@@ -947,7 +988,7 @@ static int event_read ( struct event_que *ev_que )
          * Next event pointer can be used by event tasks to determine
          * if more events are waiting in the queue
          *
-         * Must remove the lock here so that we dont deadlock if
+         * Must remove the lock here so that we don't deadlock if
          * this calls dbGetField() and blocks on the record lock,
          * dbPutField() is in progress in another task, it has the
          * record lock, and it is calling db_post_events() waiting
@@ -1090,6 +1131,11 @@ int db_start_events (
     void *init_func_arg, unsigned osiPriority )
 {
      struct event_user * const evUser = (struct event_user *) ctx;
+     epicsThreadOpts opts = EPICS_THREAD_OPTS_INIT;
+
+     opts.stackSize = epicsThreadGetStackSize(epicsThreadStackMedium);
+     opts.priority = osiPriority;
+     opts.joinable = 1;
 
      epicsMutexMustLock ( evUser->lock );
 
@@ -1107,10 +1153,8 @@ int db_start_events (
      if (!taskname) {
          taskname = EVENT_PEND_NAME;
      }
-     evUser->taskid = epicsThreadCreate (
-         taskname, osiPriority, 
-         epicsThreadGetStackSize(epicsThreadStackMedium),
-         event_task, (void *)evUser);
+     evUser->taskid = epicsThreadCreateOpt (
+         taskname, event_task, (void *)evUser, &opts);
      if (!evUser->taskid) {
          epicsMutexUnlock ( evUser->lock );
          return DB_EVENT_ERROR;
@@ -1123,7 +1167,7 @@ int db_start_events (
 /*
  * db_event_change_priority()
  */
-void db_event_change_priority ( dbEventCtx ctx, 
+void db_event_change_priority ( dbEventCtx ctx,
                                         unsigned epicsPriority )
 {
     struct event_user * const evUser = ( struct event_user * ) ctx;
@@ -1144,9 +1188,6 @@ void db_event_flow_ctrl_mode_on (dbEventCtx ctx)
      * notify the event handler task
      */
     epicsEventSignal(evUser->ppendsem);
-#ifdef DEBUG
-    printf("fc on %lu\n", tickGet());
-#endif
 }
 
 /*
@@ -1163,9 +1204,6 @@ void db_event_flow_ctrl_mode_off (dbEventCtx ctx)
      * notify the event handler task
      */
     epicsEventSignal (evUser->ppendsem);
-#ifdef DEBUG
-    printf("fc off %lu\n", tickGet());
-#endif
 }
 
 /*
@@ -1175,8 +1213,13 @@ void db_delete_field_log (db_field_log *pfl)
 {
     if (pfl) {
         /* Free field if reference type field log and dtor is set */
-        if (pfl->type == dbfl_type_ref && pfl->u.r.dtor) pfl->u.r.dtor(pfl);
+        if (pfl->type == dbfl_type_ref && pfl->dtor) pfl->dtor(pfl);
         /* Free the field log chunk */
         freeListFree(dbevFieldLogFreeList, pfl);
     }
+}
+
+int db_available_logs(void)
+{
+    return (int) freeListItemsAvail(dbevFieldLogFreeList);
 }

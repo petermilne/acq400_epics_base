@@ -6,22 +6,33 @@
 # EPICS BASE is distributed subject to a Software License Agreement found
 # in file LICENSE that is included with this distribution.
 #*************************************************************************
-TOP=../..
+IOCDIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
+TOP = ../../../..
 
 include $(TOP)/configure/CONFIG
 
-SRC = $(TOP)/src
-IOCDIR = $(SRC)/ioc
+USR_CPPFLAGS += -DUSE_TYPED_RSET -DUSE_TYPED_DSET
+
+# Shared library ABI version.
+SHRLIB_VERSION = $(EPICS_DATABASE_MAJOR_VERSION).$(EPICS_DATABASE_MINOR_VERSION).$(EPICS_DATABASE_MAINTENANCE_VERSION)
+
+API_HEADER = dbCoreAPI.h
+dbCore_API = dbCore
 
 LIBRARY_IOC += dbCore
 dbCore_LIBS += ca Com
 dbCore_SYS_LIBS_WIN32 += ws2_32
 
 dbCore_RCS += dbCore.rc
-dbStaticHost_RCS = dbStaticHost.rc
+
+EXPAND_COMMON += databaseVersion.h@
+
+EXPAND_ME += EPICS_DATABASE_MAJOR_VERSION
+EXPAND_ME += EPICS_DATABASE_MINOR_VERSION
+EXPAND_ME += EPICS_DATABASE_MAINTENANCE_VERSION
+EXPAND_ME += EPICS_DATABASE_DEVELOPMENT_FLAG
 
 INC += databaseVersion.h
-INC += databaseVersionNum.h
 
 PROD_LIBS = Com
 
@@ -34,12 +45,8 @@ include $(IOCDIR)/misc/Makefile
 include $(IOCDIR)/registry/Makefile
 include $(IOCDIR)/rsrv/Makefile
 
-EXPANDVARS += EPICS_DATABASE_MAJOR_VERSION
-EXPANDVARS += EPICS_DATABASE_MINOR_VERSION
-EXPANDVARS += EPICS_DATABASE_MAINTENANCE_VERSION
-EXPANDVARS += EPICS_DATABASE_DEVELOPMENT_FLAG
-
-EXPANDFLAGS += $(foreach var,$(EXPANDVARS),-D$(var)="$(strip $($(var)))")
+GENVERSION = epicsVCS.h
+GENVERSIONMACRO = EPICS_VCS_VERSION
 
 include $(TOP)/configure/RULES
 
@@ -48,8 +55,4 @@ include $(IOCDIR)/bpt/RULES
 include $(IOCDIR)/db/RULES
 include $(IOCDIR)/dbtemplate/RULES
 
-# Can't use EXPAND as generated headers must appear
-# in O.Common, but EXPAND emits rules for O.$(T_A)
-../O.Common/databaseVersionNum.h: ../databaseVersionNum.h@
-	$(MKDIR) $(COMMON_DIR)
-	$(EXPAND_TOOL) $(EXPANDFLAGS) $($@_EXPANDFLAGS) $< $@
+epicsRelease$(DEP): $(COMMON_DIR)/$(GENVERSION)

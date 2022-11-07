@@ -1,5 +1,6 @@
 /*************************************************************************\
 * Copyright (c) 2017 Dirk Zimoch
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -32,15 +33,16 @@
 #include "epicsExport.h"
 
 static
-void testmbbioFields(const char* rec, unsigned int value)
+void testmbbioFields(char dir, unsigned n, unsigned int value)
 {
     char field[40];
     unsigned int i;
-    
-    testdbGetFieldEqual(rec, DBF_ULONG, value);
+
+    sprintf(field,"d%c%d", dir, n);
+    testdbGetFieldEqual(field, DBF_ULONG, value);
     for (i=0; i < 32; i++)
     {
-        sprintf(field,"%s.B%X", rec, i);
+        sprintf(field,"d%c%d.B%X", dir, n, i);
         testdbGetFieldEqual(field, DBF_ULONG, (value>>i)&1);
     }
 }
@@ -48,16 +50,14 @@ void testmbbioFields(const char* rec, unsigned int value)
 static
 void testmbbioRecords(unsigned int count, unsigned int value)
 {
-    char rec[40];
     unsigned int i;
-    
+
     for (i = 1; i <= count; i++)
     {
-        sprintf(rec, "do%d", i);
-        testDiag("  ### %s ###", rec);
-        testmbbioFields(rec, value);
-        sprintf(rec, "di%d", i);
-        testmbbioFields(rec, value);
+        testDiag("  ### do%d ###", i);
+        testmbbioFields('o', i, value);
+        testDiag("  ### di%d ###", i);
+        testmbbioFields('i', i, value);
     }
 }
 
@@ -66,7 +66,7 @@ void putN(const char* pattern, unsigned int count, unsigned int value)
 {
     char field[40];
     unsigned int i;
-    
+
     for (i = 1; i <= count; i++)
     {
         sprintf(field, pattern, i);
@@ -79,7 +79,7 @@ void testN(const char* pattern, unsigned int count, unsigned int value)
 {
     char field[40];
     unsigned int i;
-    
+
     for (i = 1; i <= count; i++)
     {
         sprintf(field, pattern, i);
@@ -96,7 +96,7 @@ MAIN(mbbioDirectTest)
     unsigned int simvalue = 0;
     char macros [40];
     const unsigned int N = 2;
-    
+
     testPlan(N*((32+1)*2*4+4+3));
 
     testdbPrepare();

@@ -3,6 +3,7 @@
 #*************************************************************************
 # Copyright (c) 2010 UChicago Argonne LLC, as Operator of Argonne
 #     National Laboratory.
+# SPDX-License-Identifier: EPICS
 # EPICS BASE is distributed subject to a Software License Agreement found
 # in file LICENSE that is included with this distribution.
 #*************************************************************************
@@ -12,9 +13,7 @@
 use strict;
 
 use FindBin qw($Bin);
-use lib ($Bin, "$Bin/../../lib/perl");
-use databaseModuleDirs;
-no lib $Bin;
+use lib ("$Bin/../../lib/perl");
 
 use DBD;
 use DBD::Parser;
@@ -23,10 +22,10 @@ use EPICS::Getopts;
 use EPICS::Readfile;
 use EPICS::macLib;
 
-our ($opt_D, @opt_I, @opt_S, $opt_o, $opt_V);
+our ($opt_D, @opt_I, @opt_S, $opt_o, $opt_s, $opt_V);
 
-getopts('DI@S@o:V') or
-    die "Usage: dbExpand [-D] [-I dir] [-S macro=val] [-o out.db] in.dbd in.db ...";
+getopts('DI@S@so:V') or
+    die "Usage: dbExpand [-D] [-I dir] [-S macro=val] [-s] [-o out.db] in.dbd in.db ...";
 
 my @path = map { split /[:;]/ } @opt_I; # FIXME: Broken on Win32?
 my $macros = EPICS::macLib->new(@opt_S);
@@ -74,6 +73,9 @@ if ($opt_D) {   # Output dependencies only, ignore errors
 }
 
 die "dbExpand.pl: Exiting due to errors\n" if $errors;
+
+$dbd->sort_records
+    unless $opt_s;
 
 my $out;
 if ($opt_o) {

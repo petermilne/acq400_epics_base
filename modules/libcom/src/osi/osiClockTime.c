@@ -1,8 +1,9 @@
 /*************************************************************************\
 * Copyright (c) 2008 UChicago Argonne LLC, as Operator of Argonne
 *     National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
-* in file LICENSE that is included with this distribution. 
+* in file LICENSE that is included with this distribution.
 \*************************************************************************/
 
 #include <stddef.h>
@@ -10,7 +11,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define epicsExportSharedSymbols
 #include "epicsEvent.h"
 #include "epicsExit.h"
 #include "epicsMutex.h"
@@ -23,24 +23,25 @@
 #include "taskwd.h"
 
 #define NSEC_PER_SEC 1000000000
-#define ClockTimeSyncInterval_value 60.0
+#define ClockTimeSyncInterval_initial 1.0
+#define ClockTimeSyncInterval_normal 60.0
 
 
 static struct {
     int             synchronize;
-    int             synchronized;
-    epicsEventId    loopEvent;
-    epicsTimeStamp  startTime;
-    epicsTimeStamp  syncTime;
     double          ClockTimeSyncInterval;
-    int             syncFromPriority;
+    epicsEventId    loopEvent;
     epicsMutexId    lock;
+    int             synchronized;     /* Protected by lock */
+    int             syncFromPriority; /* Protected by lock */
+    epicsTimeStamp  startTime;        /* Protected by lock */
+    epicsTimeStamp  syncTime;         /* Protected by lock */
 } ClockTimePvt;
 
 static epicsThreadOnceId onceId = EPICS_THREAD_ONCE_INIT;
 
 
-#if defined(CLOCK_REALTIME) && !defined(_WIN32)
+#if defined(CLOCK_REALTIME) && !defined(_WIN32) && !defined(__APPLE__)
 /* This code is not used on systems without Posix CLOCK_REALTIME,
  * but the only way to detect that is from the OS headers, so the
  * Makefile can't exclude compiling this file on those systems.
@@ -48,26 +49,48 @@ static epicsThreadOnceId onceId = EPICS_THREAD_ONCE_INIT;
 
 /* Forward references */
 
-static int ClockTimeGetCurrent(epicsTimeStamp *pDest);
+int osdTimeGetCurrent(epicsTimeStamp *pDest);
 
 #if defined(vxWorks) || defined(__rtems__)
 static void ClockTimeSync(void *dummy);
+
+/* ClockTime_Init iocsh command */
+static const iocshArg InitArg0 = { "enable_sync", iocshArgArgv};
+static const iocshArg * const InitArgs[1] = { &InitArg0 };
+static const iocshFuncDef InitFuncDef = {
+    "ClockTime_Init", 1, InitArgs,
+    "Starts or stops the IOC periodically synchronizing the OS clock\n"
+    "with the higest priority working time provider.\n"};
+static void InitCallFunc(const iocshArgBuf *args)
+{
+    ClockTime_Init(args[0].ival);
+}
+
+/* ClockTime_Shutdown iocsh command */
+static const iocshFuncDef ShutdownFuncDef = {
+    "ClockTime_Shutdown", 0, NULL,
+    "Stops the IOC's OS clock synchronization thread.\n"};
+static void ShutdownCallFunc(const iocshArgBuf *args)
+{
+    ClockTime_Shutdown(NULL);
+}
 #endif
 
 /* ClockTime_Report iocsh command */
 static const iocshArg ReportArg0 = { "interest_level", iocshArgArgv};
 static const iocshArg * const ReportArgs[1] = { &ReportArg0 };
-static const iocshFuncDef ReportFuncDef = {"ClockTime_Report", 1, ReportArgs};
+static const iocshFuncDef ReportFuncDef = {
+    "ClockTime_Report", 1, ReportArgs,
+    "Reports the IOC's OS clock synchronization status:\n"
+    "  - On VxWorks and RTEMS when synchronized:\n"
+    "      * Synchronization time provider priority\n"
+    "      * Initial and last synchronization times\n"
+    "      * Synchronization interval\n"
+    "  - Otherwise:\n"
+    "      * Program start time\n"};
 static void ReportCallFunc(const iocshArgBuf *args)
 {
     ClockTime_Report(args[0].ival);
-}
-
-/* ClockTime_Shutdown iocsh command */
-static const iocshFuncDef ShutdownFuncDef = {"ClockTime_Shutdown", 0, NULL};
-static void ShutdownCallFunc(const iocshArgBuf *args)
-{
-    ClockTime_Shutdown(NULL);
 }
 
 
@@ -79,17 +102,19 @@ static void ClockTime_InitOnce(void *pfirst)
 
     ClockTimePvt.loopEvent   = epicsEventMustCreate(epicsEventEmpty);
     ClockTimePvt.lock        = epicsMutexCreate();
-    ClockTimePvt.ClockTimeSyncInterval = 1.0;   /* First sync */
 
     epicsAtExit(ClockTime_Shutdown, NULL);
 
     /* Register the iocsh commands */
-    iocshRegister(&ReportFuncDef, ReportCallFunc);
+#if defined(vxWorks) || defined(__rtems__)
+    iocshRegister(&InitFuncDef, InitCallFunc);
     iocshRegister(&ShutdownFuncDef, ShutdownCallFunc);
+#endif
+    iocshRegister(&ReportFuncDef, ReportCallFunc);
 
     /* Register as a time provider */
     generalTimeRegisterCurrentProvider("OS Clock", LAST_RESORT_PRIORITY,
-        ClockTimeGetCurrent);
+        osdTimeGetCurrent);
 }
 
 void ClockTime_Init(int synchronize)
@@ -98,12 +123,14 @@ void ClockTime_Init(int synchronize)
 
     epicsThreadOnce(&onceId, ClockTime_InitOnce, &firstTime);
 
-    if (synchronize == CLOCKTIME_SYNC) {
+    if (synchronize) {
         if (ClockTimePvt.synchronize == CLOCKTIME_NOSYNC) {
-            
+
 #if defined(vxWorks) || defined(__rtems__)
             /* Start synchronizing */
-            ClockTimePvt.synchronize = synchronize;
+            ClockTimePvt.synchronize = CLOCKTIME_SYNC;
+            ClockTimePvt.ClockTimeSyncInterval = ClockTimeSyncInterval_initial;
+            ClockTimePvt.syncFromPriority = -1;
 
             epicsThreadCreate("ClockTimeSync", epicsThreadPriorityHigh,
                 epicsThreadGetStackSize(epicsThreadStackSmall),
@@ -125,7 +152,7 @@ void ClockTime_Init(int synchronize)
         else {
             /* No synchronization thread */
             if (firstTime)
-                ClockTimeGetCurrent(&ClockTimePvt.startTime);
+                osdTimeGetCurrent(&ClockTimePvt.startTime);
         }
     }
 }
@@ -148,6 +175,8 @@ void ClockTime_GetProgramStart(epicsTimeStamp *pDest)
 /* Synchronization thread */
 
 #if defined(vxWorks) || defined(__rtems__)
+CLOCKTIME_SYNCHOOK ClockTime_syncHook = NULL;
+
 static void ClockTimeSync(void *dummy)
 {
     taskwdInsert(0, NULL, NULL);
@@ -179,11 +208,16 @@ static void ClockTimeSync(void *dummy)
             ClockTimePvt.syncTime         = timeNow;
             epicsMutexUnlock(ClockTimePvt.lock);
 
-            ClockTimePvt.ClockTimeSyncInterval = ClockTimeSyncInterval_value;
+            if (ClockTime_syncHook)
+                ClockTime_syncHook(1);
+
+            ClockTimePvt.ClockTimeSyncInterval = ClockTimeSyncInterval_normal;
         }
     }
 
     ClockTimePvt.synchronized = 0;
+    if (ClockTime_syncHook)
+        ClockTime_syncHook(0);
     taskwdRemove(0);
 }
 #endif
@@ -191,7 +225,7 @@ static void ClockTimeSync(void *dummy)
 
 /* Time Provider Routine */
 
-static int ClockTimeGetCurrent(epicsTimeStamp *pDest)
+int osdTimeGetCurrent(epicsTimeStamp *pDest)
 {
     struct timespec clockNow;
 
@@ -221,7 +255,11 @@ static int ClockTimeGetCurrent(epicsTimeStamp *pDest)
     return 0;
 }
 
-#endif /* CLOCK_REALTIME */
+/* Used in Report function below: */
+#define UNINIT_ERROR "initialized"
+#else
+#define UNINIT_ERROR "available"
+#endif /* CLOCK_REALTIME && !WIN32 */
 
 /* Allow the following report routine to be compiled anyway
  * to avoid getting a build warning from ranlib.
@@ -234,13 +272,7 @@ int ClockTime_Report(int level)
     char timebuf[32];
 
     if (onceId == EPICS_THREAD_ONCE_INIT) {
-        printf("OS Clock driver not %s.\n",
-#ifdef CLOCK_REALTIME
-            "initialized"
-#else
-            "available"
-#endif /* CLOCK_REALTIME */
-            );
+        puts("OS Clock provider not " UNINIT_ERROR);
     }
     else if (ClockTimePvt.synchronize == CLOCKTIME_SYNC) {
         int synchronized, syncFromPriority;
@@ -254,7 +286,7 @@ int ClockTime_Report(int level)
         epicsMutexUnlock(ClockTimePvt.lock);
 
         if (synchronized) {
-            printf("OS Clock driver is synchronized to a priority=%d provider\n",
+            printf("IOC is synchronizing OS Clock to a priority=%d provider\n",
                 syncFromPriority);
             if (level) {
                 epicsTimeToStrftime(timebuf, sizeof(timebuf),
@@ -264,17 +296,23 @@ int ClockTime_Report(int level)
                     "%Y-%m-%d %H:%M:%S.%06f", &syncTime);
                 printf("Last successful sync was at %s\n", timebuf);
             }
-            printf("Syncronization interval = %.0f seconds\n",
-                ClockTimePvt.ClockTimeSyncInterval);
         }
         else
-            printf("OS Clock driver is *not* synchronized\n");
+            printf("OS Clock is *not* currently synchronized\n");
+
+        printf("IOC synchronization interval = %.0f seconds\n",
+            ClockTimePvt.ClockTimeSyncInterval);
     }
     else {
         epicsTimeToStrftime(timebuf, sizeof(timebuf),
             "%Y-%m-%d %H:%M:%S.%06f", &ClockTimePvt.startTime);
         printf("Program started at %s\n", timebuf);
-        printf("OS Clock synchronization thread not running.\n");
+#if defined(vxWorks) || defined(__rtems__)
+        printf("IOC's OS Clock synchronization thread is not running.\n");
+#endif
     }
+#ifdef osdClockReport
+    osdClockReport(level);
+#endif
     return 0;
 }

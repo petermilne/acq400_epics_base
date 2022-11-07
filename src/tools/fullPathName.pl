@@ -2,6 +2,7 @@
 #*************************************************************************
 # Copyright (c) 2009 UChicago Argonne LLC, as Operator of Argonne
 #     National Laboratory.
+# SPDX-License-Identifier: EPICS
 # EPICS BASE is distributed subject to a Software License Agreement found
 # in file LICENSE that is included with this distribution.
 #*************************************************************************
@@ -17,7 +18,7 @@ use Getopt::Std;
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 
 use FindBin qw($Bin);
-use lib ("$Bin/../../lib/perl", $Bin);
+use lib ("$Bin/../../lib/perl");
 
 use EPICS::Path;
 

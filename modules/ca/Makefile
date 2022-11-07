@@ -7,11 +7,9 @@
 # in file LICENSE that is included with this distribution.
 #*************************************************************************
 
-TOP = .
+TOP = ../..
 include $(TOP)/configure/CONFIG
 
-DIRS += configure src
+DIRS += src
 
-src_DEPEND_DIRS = configure
-
-include $(TOP)/configure/RULES_TOP
+include $(TOP)/configure/RULES_DIRS

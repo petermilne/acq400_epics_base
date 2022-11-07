@@ -3,6 +3,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -19,7 +20,6 @@
 #include <math.h>
 #include <limits.h>
 
-#define epicsExportSharedSymbols
 #include "cantProceed.h"
 #include "epicsAssert.h"
 #include "epicsStdio.h"
@@ -132,7 +132,7 @@ int errSymbolAdd(long errNum, const char *name)
  ***************************************************************/
 static void errRawCopy(long statusToDecode, char *pBuf, size_t bufLength)
 {
-    epicsUInt16 modnum = (statusToDecode >>= 16) & 0xffff;
+    epicsUInt16 modnum = (statusToDecode >> 16) & 0xffff;
     epicsUInt16 errnum = statusToDecode & 0xffff;
 
     assert(bufLength > 20);
@@ -192,7 +192,7 @@ void errSymLookup(long status, char * pBuf, size_t bufLength)
 {
     const char* msg = errSymLookupInternal(status);
     if(msg) {
-        strncpy(pBuf, msg, bufLength);
+        strncpy(pBuf, msg, bufLength-1);
         pBuf[bufLength-1] = '\0';
         return;
     }

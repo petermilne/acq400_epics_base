@@ -6,6 +6,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -36,7 +37,6 @@
 
 #include "epicsExport.h"
 
-#define epicsExportSharedSymbols
 #include "dbChannel.h"
 #include "dbCommon.h"
 #include "dbEvent.h"
@@ -68,17 +68,6 @@ static void req_server (void *pParm)
 
     IOC_sock = conf->tcp;
 
-    /* listen and accept new connections */
-    if ( listen ( IOC_sock, 20 ) < 0 ) {
-        char sockErrBuf[64];
-        epicsSocketConvertErrnoToString (
-            sockErrBuf, sizeof ( sockErrBuf ) );
-        errlogPrintf ( "CAS: Listen error: %s\n",
-            sockErrBuf );
-        epicsSocketDestroy (IOC_sock);
-        epicsThreadSuspendSelf ();
-    }
-
     epicsEventSignal(castcp_startStopEvent);
 
     while (TRUE) {
@@ -97,7 +86,7 @@ static void req_server (void *pParm)
             char sockErrBuf[64];
             epicsSocketConvertErrnoToString (
                 sockErrBuf, sizeof ( sockErrBuf ) );
-            errlogPrintf("CAS: Client accept error: %s (%d)\n",
+            errlogPrintf("CAS: Client accept " ERL_ERROR ": %s (%d)\n",
                 sockErrBuf, (int)addLen );
             epicsThreadSleep(15.0);
             continue;
@@ -142,7 +131,7 @@ int tryBind(SOCKET sock, const osiSockAddr* addr, const char *name)
         {
             epicsSocketConvertErrnoToString (
                         sockErrBuf, sizeof ( sockErrBuf ) );
-            errlogPrintf ( "CAS: %s bind error: %s\n",
+            errlogPrintf ( "CAS: %s bind " ERL_ERROR ": %s\n",
                            name, sockErrBuf );
             epicsThreadSuspendSelf ();
         }
@@ -198,7 +187,7 @@ SOCKET* rsrv_grab_tcp(unsigned short *port)
 
             epicsSocketEnableAddressReuseDuringTimeWaitState ( tcpsock );
 
-            if(bind(tcpsock, &scratch.sa, sizeof(scratch))==0) {
+            if(bind(tcpsock, &scratch.sa, sizeof(scratch))==0 && listen(tcpsock, 20)==0) {
                 if(scratch.ia.sin_port==0) {
                     /* use first socket to pick a random port */
                     osiSocklen_t alen = sizeof(ifaceAddr);
@@ -207,7 +196,7 @@ SOCKET* rsrv_grab_tcp(unsigned short *port)
                         char sockErrBuf[64];
                         epicsSocketConvertErrnoToString (
                             sockErrBuf, sizeof ( sockErrBuf ) );
-                        errlogPrintf ( "CAS: getsockname error: %s\n",
+                        errlogPrintf ( "CAS: getsockname " ERL_ERROR ": %s\n",
                             sockErrBuf );
                         epicsThreadSuspendSelf ();
                         ok = 0;
@@ -335,7 +324,7 @@ void rsrv_build_addr_lists(void)
             char sockErrBuf[64];
             epicsSocketConvertErrnoToString (
                 sockErrBuf, sizeof ( sockErrBuf ) );
-            errlogPrintf("rsrv: failed to set mcast ttl %d\n", ttl);
+            errlogPrintf("rsrv: failed to set mcast ttl %d\n", (int)ttl);
         }
     }
 #endif
@@ -556,7 +545,7 @@ void rsrv_init (void)
     beacon_startStopEvent = epicsEventMustCreate(epicsEventEmpty);
     castcp_ctl = ctlPause;
 
-    /* Thread priorites
+    /* Thread priorities
      * Now starting per interface
      *  TCP Listener: epicsThreadPriorityCAServerLow-2
      *  Name receiver: epicsThreadPriorityCAServerLow-4
@@ -583,17 +572,22 @@ void rsrv_init (void)
 
     {
         unsigned short sport = ca_server_port;
+        char buf[6]; /* space for 0 - 65535 */
         socks = rsrv_grab_tcp(&sport);
 
         if ( sport != ca_server_port ) {
             ca_server_port = sport;
-            errlogPrintf ( "cas warning: Configured TCP port was unavailable.\n");
-            errlogPrintf ( "cas warning: Using dynamically assigned TCP port %hu,\n",
+            errlogPrintf ( "cas " ERL_WARNING ": Configured TCP port was unavailable.\n");
+            errlogPrintf ( "cas " ERL_WARNING ": Using dynamically assigned TCP port %hu,\n",
                 ca_server_port );
-            errlogPrintf ( "cas warning: but now two or more servers share the same UDP port.\n");
-            errlogPrintf ( "cas warning: Depending on your IP kernel this server may not be\n" );
-            errlogPrintf ( "cas warning: reachable with UDP unicast (a host's IP in EPICS_CA_ADDR_LIST)\n" );
+            errlogPrintf ( "cas " ERL_WARNING ": but now two or more servers share the same UDP port.\n");
+            errlogPrintf ( "cas " ERL_WARNING ": Depending on your IP kernel this server may not be\n" );
+            errlogPrintf ( "cas " ERL_WARNING ": reachable with UDP unicast (a host's IP in EPICS_CA_ADDR_LIST)\n" );
         }
+
+        epicsSnprintf(buf, sizeof(buf)-1u, "%u", ca_server_port);
+        buf[sizeof(buf)-1u] = '\0';
+        epicsEnvSet("RSRV_SERVER_PORT", buf);
     }
 
     /* start servers (TCP and UDP(s) for each interface.
@@ -1215,7 +1209,7 @@ void destroy_tcp_client ( struct client *client )
         assert ( ! status );
 
         /*
-         * wait for extra labor in progress to comple
+         * wait for extra labor in progress to complete
          */
         db_flush_extra_labor_event ( client->evuser );
     }
@@ -1240,7 +1234,7 @@ struct client * create_client ( SOCKET sock, int proto )
     size_t        spaceNeeded;
 
     /*
-     * stop further use of server if memory becomes scarse
+     * stop further use of server if memory becomes scarce
      */
     spaceAvailOnFreeList =     freeListItemsAvail ( rsrvClientFreeList ) > 0
                             && freeListItemsAvail ( rsrvSmallBufFreeListTCP ) > 0;
@@ -1343,10 +1337,13 @@ void casExpandBuffer ( struct message_buffer *buf, ca_uint32_t size, int sendbuf
         // round up to multiple of 4K
         size = ((size-1)|0xfff)+1;
 
-        if (buf->type==mbtLargeTCP)
+        if (buf->type==mbtLargeTCP) {
             newbuf = realloc (buf->buf, size);
-        else
+            if(newbuf)
+                buf->buf = newbuf;
+        } else {
             newbuf = malloc (size);
+        }
         newtype = mbtLargeTCP;
         newsize = size;
 
@@ -1421,6 +1418,20 @@ struct client *create_tcp_client (SOCKET sock , const osiSockAddr *peerAddr)
     }
 
     client->addr = peerAddr->ia;
+    if(asCheckClientIP) {
+        epicsUInt32 ip = ntohl(client->addr.sin_addr.s_addr);
+        client->pHostName = malloc(24);
+        if(!client->pHostName) {
+            destroy_client ( client );
+            return NULL;
+        }
+        epicsSnprintf(client->pHostName, 24,
+                      "%u.%u.%u.%u",
+                      (ip>>24)&0xff,
+                      (ip>>16)&0xff,
+                      (ip>>8)&0xff,
+                      (ip>>0)&0xff);
+    }
 
     /*
      * see TCP(4P) this seems to make unsolicited single events much

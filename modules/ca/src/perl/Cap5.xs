@@ -1,8 +1,23 @@
+/*************************************************************************\
+* Copyright (c) 2005 UChicago Argonne LLC, as Operator of Argonne
+*     National Laboratory.
+* SPDX-License-Identifier: EPICS
+* EPICS BASE is distributed subject to a Software License Agreement found
+* in file LICENSE that is included with this distribution.
+\*************************************************************************/
+
 /* Provides an EPICS Channel Access client interface for Perl5. */
 
 /* This macro disables perl's reentr.inc file, which we don't need
  * here and just generates unnecessary compiler warnings. */
 #define REENTRINC
+
+/* Clang-12 and later generates many warnings about compound token */
+#ifdef __has_warning
+#  if __has_warning("-Wcompound-token-split-by-macro")
+#    pragma clang diagnostic ignored "-Wcompound-token-split-by-macro"
+#  endif
+#endif
 
 #include "EXTERN.h"
 #include "perl.h"
@@ -193,6 +208,8 @@ SV * newSVdbr(struct event_handler_args *peha) {
     if (is_primitive) {
         if (value_type == DBR_CHAR) {
             /* Long string => Perl scalar */
+            if (peha->count == 0)
+                return newSVpvn(peha->dbr, 0);
             ((char *)peha->dbr) [peha->count - 1] = 0;
             return newSVpv(peha->dbr, 0);
         }
@@ -263,8 +280,12 @@ SV * newSVdbr(struct event_handler_args *peha) {
         char *str = dbr_value_ptr(peha->dbr, peha->type);
 
         /* Long string => Perl scalar */
-        str[peha->count - 1] = 0;
-        val = newSVpv(str, 0);
+        if (peha->count == 0)
+            val = newSVpvn(str, 0);
+        else {
+            str[peha->count - 1] = 0;
+            val = newSVpv(str, 0);
+        }
     } else if (peha->count == 1) {
         /* Single value => Perl scalar */
         val = newSVdbf(value_type,
@@ -598,12 +619,12 @@ void CA_put(SV *ca_ref, SV *val, ...) {
         }
     } else {
         union {
+            void         *dbr;
             dbr_char_t   *dbr_char;
             dbr_long_t   *dbr_long;
             dbr_double_t *dbr_double;
             char         *dbr_string;
-            void         *dbr;
-        } p;
+        } p = {0};
         int i;
         chtype type = best_type(pch);
 
@@ -691,12 +712,12 @@ void CA_put_callback(SV *ca_ref, SV *sub, SV *val, ...) {
         }
     } else {
         union {
+            void         *dbr;
             dbr_char_t   *dbr_char;
             dbr_long_t   *dbr_long;
             dbr_double_t *dbr_double;
             char         *dbr_string;
-            void         *dbr;
-        } p;
+        } p = {0};
         int i;
         chtype type = best_type(pch);
 

@@ -4,8 +4,9 @@
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
 * Copyright (c) 2012 ITER Organization
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
-* in file LICENSE that is included with this distribution. 
+* in file LICENSE that is included with this distribution.
 \*************************************************************************/
 /* osi/os/vxWorks/epicsThread.c */
 
@@ -34,7 +35,23 @@
 #include "vxLib.h"
 #include "epicsExit.h"
 
-epicsShareFunc void osdThreadHooksRun(epicsThreadId id);
+#ifdef EPICS_THREAD_CAN_JOIN
+  /* The implementation of epicsThreadMustJoin() here uses 2 features
+   * of VxWorks that were first introduced in VxWorks 6.9: taskWait(),
+   * and the taskSpareFieldGet/Set routines in taskUtilLib.
+   */
+  #include <taskUtilLib.h>
+
+  #define JOIN_WARNING_TIMEOUT (60 * sysClkRateGet())
+
+  static SPARE_NUM joinField;
+  #define ALLOT_JOIN(tid) taskSpareNumAllot(tid, &joinField)
+#else
+  #define ALLOT_JOIN(tid)
+#endif
+
+
+LIBCOM_API void osdThreadHooksRun(epicsThreadId id);
 
 #if CPU_FAMILY == MC680X0
 #define ARCH_STACK_FACTOR 1
@@ -43,7 +60,7 @@ epicsShareFunc void osdThreadHooksRun(epicsThreadId id);
 #else
 #define ARCH_STACK_FACTOR 2
 #endif
-static const unsigned stackSizeTable[epicsThreadStackBig+1] = 
+static const unsigned stackSizeTable[epicsThreadStackBig+1] =
    {4000*ARCH_STACK_FACTOR, 6000*ARCH_STACK_FACTOR, 11000*ARCH_STACK_FACTOR};
 
 /* Table and lock for epicsThreadMap() */
@@ -67,7 +84,7 @@ static SEM_ID epicsThreadOnceMutex = 0;
 /* osi =  199 - vx */
 
 static unsigned int getOsiPriorityValue(int ossPriority)
-{   
+{
     if ( ossPriority < 100 ) {
         return epicsThreadPriorityMax;
     }
@@ -109,6 +126,7 @@ static void epicsThreadInit(void)
         assert(taskIdList);
         taskIdListSize = ID_LIST_CHUNK;
         atRebootRegister();
+        ALLOT_JOIN(0);
         done = 1;
     }
     lock = 0;
@@ -117,7 +135,7 @@ static void epicsThreadInit(void)
 void epicsThreadRealtimeLock(void)
 {}
 
-unsigned int epicsThreadGetStackSize (epicsThreadStackSizeClass stackSizeClass) 
+unsigned int epicsThreadGetStackSize (epicsThreadStackSizeClass stackSizeClass)
 {
 
     if (stackSizeClass<epicsThreadStackSmall) {
@@ -170,19 +188,62 @@ void epicsThreadOnce(epicsThreadOnceId *id, void (*func)(void *), void *arg)
     }
     semGive(epicsThreadOnceMutex);
 }
-
-static void createFunction(EPICSTHREADFUNC func, void *parm)
+
+#ifdef EPICS_THREAD_CAN_JOIN
+
+/* The next 2 routines are not static so they appear in the back-trace
+ * of the epicsThreads that have called them.
+ */
+void epicsThreadAwaitingJoin(int tid)
+{
+    SEM_ID joinSem = (SEM_ID) taskSpareFieldGet(tid, joinField);
+    STATUS status;
+
+    if (!joinSem || (int) joinSem == ERROR)
+        return;
+
+    /* Wait for our supervisor */
+    status = semTake(joinSem, JOIN_WARNING_TIMEOUT);
+    if (status && errno == S_objLib_OBJ_TIMEOUT) {
+        errlogPrintf("Warning: epicsThread '%s' still awaiting join\n",
+            epicsThreadGetNameSelf());
+        status = semTake(joinSem, WAIT_FOREVER);
+    }
+    if (status)
+        perror("epicsThreadAwaitingJoin");
+
+    taskSpareFieldSet(tid, joinField, 0);
+    semDelete(joinSem);
+}
+  #define PREPARE_JOIN(tid, joinable) \
+    taskSpareFieldSet(tid, joinField, \
+        joinable ? (int) semBCreate(SEM_Q_FIFO, SEM_EMPTY) : 0)
+  #define AWAIT_JOIN(tid) \
+    epicsThreadAwaitingJoin(tid)
+
+#else
+
+  #define PREPARE_JOIN(tid, joinable)
+  #define AWAIT_JOIN(tid)
+
+#endif
+
+void epicsThreadEntry(EPICSTHREADFUNC func, void *parm)
 {
     int tid = taskIdSelf();
 
     taskVarAdd(tid,(int *)(char *)&papTSD);
-    /*Make sure that papTSD is still 0 after that call to taskVarAdd*/
-    papTSD = 0;
+    papTSD = NULL; /* Initialize for this thread */
+
     osdThreadHooksRun((epicsThreadId)tid);
+
     (*func)(parm);
+
     epicsExitCallAtThreadExits ();
     free(papTSD);
     taskVarDelete(tid,(int *)(char *)&papTSD);
+
+    AWAIT_JOIN(tid);
 }
 
 #ifdef ALTIVEC
@@ -190,27 +251,87 @@ static void createFunction(EPICSTHREADFUNC func, void *parm)
 #else
   #define TASK_FLAGS (VX_FP_TASK)
 #endif
-epicsThreadId epicsThreadCreate(const char *name,
-    unsigned int priority, unsigned int stackSize,
-    EPICSTHREADFUNC funptr,void *parm)
+epicsThreadId epicsThreadCreateOpt(const char * name,
+    EPICSTHREADFUNC funptr, void * parm, const epicsThreadOpts *opts )
 {
+    unsigned int stackSize;
     int tid;
 
     epicsThreadInit();
-    if(stackSize<100) {
-        errlogPrintf("epicsThreadCreate %s illegal stackSize %d\n",name,stackSize);
-        return(0);
+
+    if (!opts) {
+        static const epicsThreadOpts opts_default = EPICS_THREAD_OPTS_INIT;
+        opts = &opts_default;
     }
-    tid = taskSpawn((char *)name,getOssPriorityValue(priority),
+    stackSize = opts->stackSize;
+    if (stackSize <= epicsThreadStackBig)
+        stackSize = epicsThreadGetStackSize(stackSize);
+
+    if (stackSize < 100) {
+        errlogPrintf("epicsThreadCreate %s illegal stackSize %d\n",
+            name, stackSize);
+        return 0;
+    }
+
+    tid = taskCreate((char *)name,getOssPriorityValue(opts->priority),
         TASK_FLAGS, stackSize,
-        (FUNCPTR)createFunction,(int)funptr,(int)parm,
+        (FUNCPTR)epicsThreadEntry, (int)funptr, (int)parm,
         0,0,0,0,0,0,0,0);
-    if(tid==ERROR) {
+    if (tid == ERROR) {
         errlogPrintf("epicsThreadCreate %s failure %s\n",
-            name,strerror(errno));
-        return(0);
+            name, strerror(errno));
+        return 0;
     }
-    return((epicsThreadId)tid);
+
+    PREPARE_JOIN(tid, opts->joinable);
+    taskActivate(tid);
+
+    return (epicsThreadId)tid;
+}
+
+void epicsThreadMustJoin(epicsThreadId id)
+{
+#ifdef EPICS_THREAD_CAN_JOIN
+    const char *fn = "epicsThreadMustJoin";
+    int tid = (int) id;
+    SEM_ID joinSem;
+    STATUS status;
+
+    if (!tid)
+        return;
+
+    joinSem = (SEM_ID) taskSpareFieldGet(tid, joinField);
+    if ((int) joinSem == ERROR) {
+        errlogPrintf("%s: Thread %#x no longer exists.\n", fn, tid);
+        return;
+    }
+
+    if (tid == taskIdSelf()) {
+        if (joinSem) {
+            taskSpareFieldSet(tid, joinField, 0);
+            semDelete(joinSem);
+        }
+        else {
+            errlogPrintf("%s: Thread '%s' (%#x) can't self-join.\n",
+                fn, epicsThreadGetNameSelf(), tid);
+        }
+        return;
+    }
+
+    if (!joinSem) {
+        cantProceed("%s: Thread '%s' (%#x) is not joinable.\n",
+            fn, taskName(tid), tid);
+        return;
+    }
+
+    semGive(joinSem);   /* Rendezvous with thread */
+
+    status = taskWait(tid, WAIT_FOREVER);
+    if (status && errno != S_objLib_OBJ_ID_ERROR) {
+        perror(fn);
+        cantProceed("%s: ", fn);
+    }
+#endif
 }
 
 void epicsThreadSuspendSelf()
@@ -232,7 +353,7 @@ void epicsThreadResume(epicsThreadId id)
 
 void epicsThreadExitMain(void)
 {
-    errlogPrintf("epicsThreadExitMain was called for vxWorks. Why?\n");
+    cantProceed("epicsThreadExitMain() must no longer be used.\n");
 }
 
 unsigned int epicsThreadGetPriority(epicsThreadId id)
@@ -337,7 +458,7 @@ void epicsThreadGetName (epicsThreadId id, char *name, size_t size)
     name[size-1] = '\0';
 }
 
-epicsShareFunc void epicsThreadMap ( EPICS_THREAD_HOOK_ROUTINE func )
+LIBCOM_API void epicsThreadMap ( EPICS_THREAD_HOOK_ROUTINE func )
 {
     int noTasks = 0;
     int i;
@@ -348,8 +469,9 @@ epicsShareFunc void epicsThreadMap ( EPICS_THREAD_HOOK_ROUTINE func )
     while (noTasks == 0) {
         noTasks = taskIdListGet(taskIdList, taskIdListSize);
         if (noTasks == taskIdListSize) {
-            taskIdList = realloc(taskIdList, (taskIdListSize+ID_LIST_CHUNK)*sizeof(int));
-            assert(taskIdList);
+            int *newlist = realloc(taskIdList, (taskIdListSize+ID_LIST_CHUNK)*sizeof(int));
+            assert(newlist);
+            taskIdList = newlist;
             taskIdListSize += ID_LIST_CHUNK;
             noTasks = 0;
         }
@@ -380,7 +502,7 @@ void epicsThreadShow(epicsThreadId id, unsigned int level)
  * The array size is equal to the number of epicsThreadPrivateIds created + 1
  * when epicsThreadPrivateSet is called.
  * Until the first call to epicsThreadPrivateCreate by a application papTSD=0
- * After first call papTSD[0] is value of nepicsThreadPrivate when 
+ * After first call papTSD[0] is value of nepicsThreadPrivate when
  * epicsThreadPrivateSet was last called by the thread. This is also
  * the value of epicsThreadPrivateId.
  * The algorithm allows for epicsThreadPrivateCreate being called after
@@ -451,7 +573,7 @@ double epicsThreadSleepQuantum ()
     return 1.0 / HZ;
 }
 
-epicsShareFunc int epicsThreadGetCPUs(void)
+LIBCOM_API int epicsThreadGetCPUs(void)
 {
     return 1;
 }

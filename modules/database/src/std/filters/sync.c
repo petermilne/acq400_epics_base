@@ -2,6 +2,7 @@
 * Copyright (c) 2010 Brookhaven National Laboratory.
 * Copyright (c) 2010 Helmholtz-Zentrum Berlin
 *     fuer Materialien und Energie GmbH.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -110,7 +111,9 @@ static db_field_log* filter(void* pvt, dbChannel *chan, db_field_log *pfl) {
             passfl = pfl;
             pfl = NULL;
         }
-        break;
+        else
+            db_delete_field_log(pfl);
+        goto save_state;
     case syncModeLast:
         if (!actstate && my->laststate) {
             passfl = my->lastfl;
@@ -122,28 +125,34 @@ static db_field_log* filter(void* pvt, dbChannel *chan, db_field_log *pfl) {
             passfl = pfl;
             pfl = NULL;
         }
-        break;
+        else
+            db_delete_field_log(pfl);
+        goto save_state;
     case syncModeWhile:
-        if (actstate) {
+        if (actstate)
             passfl = pfl;
-        }
+        else
+            db_delete_field_log(pfl);
         goto no_shift;
     case syncModeUnless:
-        if (!actstate) {
+        if (!actstate)
             passfl = pfl;
-        }
+        else
+            db_delete_field_log(pfl);
         goto no_shift;
     }
 
     if (my->lastfl)
         db_delete_field_log(my->lastfl);
     my->lastfl = pfl;
-    my->laststate = actstate;
 
     /* since no copy is made we can't keep a reference to the returned fl */
     assert(my->lastfl != passfl);
 
-    no_shift:
+save_state:
+    my->laststate = actstate;
+
+no_shift:
     return passfl;
 }
 

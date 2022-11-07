@@ -6,6 +6,7 @@
 *     National Laboratory.
 * Copyright (c) 2013 Brookhaven Science Assoc. as Operator of Brookhaven
 *     National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -15,7 +16,7 @@
  *          Andrew Johnson <anj@aps.anl.gov>
  *          Michael Davidsaver <mdavidsaver@bnl.gov>
  *
- * Inspired by Linux UP spinlocks implemention
+ * Inspired by Linux UP spinlocks implementation
  *   include/linux/spinlock_api_up.h
  */
 

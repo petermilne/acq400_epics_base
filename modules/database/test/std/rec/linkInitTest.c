@@ -1,5 +1,6 @@
 /*************************************************************************\
 * Copyright (c) 2015 Michael Davidsaver
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -143,6 +144,8 @@ static void testPrintfStrings()
 static void testArrayInputs()
 {
     epicsInt32 oneToTwelve[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    epicsOldString reindeer[10] = {"Dasher", "Dancer", "Prancer", "Vixen",
+                    "Comet", "Cupid", "Donner", "Blitzen", "Rudolph"};
 
     testDiag("testArrayInputs");
 
@@ -167,6 +170,7 @@ static void testArrayInputs()
     testdbGetArrFieldEqual("sa2.VAL", DBF_LONG, 10, 0, NULL);
     testdbGetArrFieldEqual("wf1.VAL", DBF_LONG, 12, 10, &oneToTwelve[0]);
     testdbGetArrFieldEqual("wf2.VAL", DBF_LONG, 12, 10, &oneToTwelve[0]);
+    testdbGetArrFieldEqual("reindeer.VAL", DBF_STRING, 10, 9, &reindeer[0]);
 
     testdbPutFieldOk("sa1.INDX", DBF_LONG, 3);
     testdbGetArrFieldEqual("sa1.VAL", DBF_LONG, 12, 9, &oneToTwelve[3]);
@@ -242,7 +246,7 @@ void testInt64Inputs(void)
 
 MAIN(linkInitTest)
 {
-    testPlan(78);
+    testPlan(79);
 
     testLongStringInit();
     testCalcInit();

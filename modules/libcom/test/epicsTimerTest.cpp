@@ -3,6 +3,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -62,7 +63,7 @@ void testRefCount()
     Q1->release();
 }
 
-static const double delayVerifyOffset = 1.0; // sec 
+static const double delayVerifyOffset = 1.0; // sec
 
 class delayVerify : public epicsTimerNotify {
 public:
@@ -108,14 +109,14 @@ inline double delayVerify::delay () const
 
 double delayVerify::checkError () const
 {
-    const double messageThresh = 2.0; // percent 
-    double actualDelay =  this->expireStamp - this->beginStamp;
-    double measuredError = actualDelay - this->expectedDelay;
-    double percentError = 100.0 * fabs ( measuredError ) / this->expectedDelay;
-    if ( ! testOk1 ( percentError < messageThresh ) ) {
-        testDiag ( "delay = %f s, error = %f s (%.1f %%)", 
-            this->expectedDelay, measuredError, percentError );
-    }
+    const double minError = testImpreciseTiming() ? 0.25 : 0.05;
+    double measuredDelay = this->expireStamp - this->beginStamp;
+    double measuredError = measuredDelay - this->expectedDelay;
+    double absoluteError = fabs(measuredError);
+    double percentError = 100.0 * measuredError / this->expectedDelay;
+    testOk(absoluteError < minError,
+           "Delay %.3f s, error = %+.6f ms (%+.3f %%)",
+           this->expectedDelay, measuredError * 1000, percentError);
     return measuredError;
 }
 
@@ -145,7 +146,7 @@ void testAccuracy ()
 
     testDiag ( "Testing timer accuracy" );
 
-    epicsTimerQueueActive &queue = 
+    epicsTimerQueueActive &queue =
         epicsTimerQueueActive::allocate ( true, epicsThreadPriorityMax );
 
     for ( i = 0u; i < nTimers; i++ ) {
@@ -168,7 +169,7 @@ void testAccuracy ()
         averageMeasuredError += pTimers[i]->checkError ();
     }
     averageMeasuredError /= nTimers;
-    testDiag ("average timer delay error %f ms", 
+    testDiag ("average timer delay error %f ms",
         averageMeasuredError * 1000 );
     queue.release ();
 }
@@ -239,7 +240,7 @@ void testCancel ()
 
     testDiag ( "Testing timer cancellation" );
 
-    epicsTimerQueueActive &queue = 
+    epicsTimerQueueActive &queue =
         epicsTimerQueueActive::allocate ( true, epicsThreadPriorityMin );
 
     for ( i = 0u; i < nTimers; i++ ) {
@@ -328,7 +329,7 @@ void testExpireDestroy ()
 
     testDiag ( "Testing timer destruction in expire()" );
 
-    epicsTimerQueueActive &queue = 
+    epicsTimerQueueActive &queue =
         epicsTimerQueueActive::allocate ( true, epicsThreadPriorityMin );
 
     for ( i = 0u; i < nTimers; i++ ) {
@@ -370,7 +371,7 @@ private:
 };
 
 periodicVerify::periodicVerify ( epicsTimerQueue & queueIn ) :
-    timer ( queueIn.createTimer () ), nExpire ( 0u ), 
+    timer ( queueIn.createTimer () ), nExpire ( 0u ),
         cancelCalled ( false )
 {
 }
@@ -422,7 +423,7 @@ void testPeriodic ()
 
     testDiag ( "Testing periodic timers" );
 
-    epicsTimerQueueActive &queue = 
+    epicsTimerQueueActive &queue =
         epicsTimerQueueActive::allocate ( true, epicsThreadPriorityMin );
 
     for ( i = 0u; i < nTimers; i++ ) {

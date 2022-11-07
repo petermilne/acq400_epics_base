@@ -3,12 +3,13 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
 /* dbNotify.c */
 /*
- *      Author: 	Marty Kraimer
+ *      Author:         Marty Kraimer
  *                      Andrew Johnson <anj@aps.anl.gov>
  *
  * Extracted from dbLink.c
@@ -32,7 +33,6 @@
 #include "errlog.h"
 #include "errMdef.h"
 
-#define epicsExportSharedSymbols
 #include "callback.h"
 #include "dbAccessDefs.h"
 #include "dbBase.h"
@@ -69,7 +69,7 @@ typedef struct notifyPvt {
     ELLNODE      node;   /*For free list*/
     long         magic;
     short        state;
-    CALLBACK     callback;
+    epicsCallback     callback;
     ELLLIST      waitList; /*list of records for current processNotify*/
     short        cancelWait;
     short        userCallbackWait;
@@ -86,13 +86,7 @@ typedef struct notifyGlobal {
 
 static notifyGlobal *pnotifyGlobal = 0;
 
-/*Local routines*/
-static void notifyInit(processNotify *ppn);
-static void notifyCleanup(processNotify *ppn);
-static void restartCheck(processNotifyRecord *ppnr);
-static void callDone(dbCommon *precord,processNotify *ppn);
-static void processNotifyCommon(processNotify *ppn,dbCommon *precord);
-static void notifyCallback(CALLBACK *pcallback);
+static void notifyCallback(epicsCallback *pcallback);
 
 #define ellSafeAdd(list,listnode) \
 { \
@@ -157,7 +151,7 @@ static void restartCheck(processNotifyRecord *ppnr)
     dbCommon *precord = ppnr->precord;
     processNotify *pfirst;
     notifyPvt *pnotifyPvt;
-    
+
     assert(precord->ppn);
     pfirst = (processNotify *) ellFirst(&ppnr->restartList);
     if (!pfirst) {
@@ -194,7 +188,7 @@ static void callDone(dbCommon *precord, processNotify *ppn)
     }
     if (!pnotifyPvt->cancelWait && !pnotifyPvt->userCallbackWait) {
         notifyCleanup(ppn);
-        epicsMutexUnlock(pnotifyGlobal->lock); 
+        epicsMutexUnlock(pnotifyGlobal->lock);
         return;
     }
     if (pnotifyPvt->cancelWait) {
@@ -210,7 +204,7 @@ static void callDone(dbCommon *precord, processNotify *ppn)
     return;
 }
 
-static void processNotifyCommon(processNotify *ppn,dbCommon *precord)
+static void processNotifyCommon(processNotify *ppn, dbCommon *precord, int first)
 {
     notifyPvt *pnotifyPvt = (notifyPvt *) ppn->pnotifyPvt;
     int didPut = 0;
@@ -219,7 +213,7 @@ static void processNotifyCommon(processNotify *ppn,dbCommon *precord)
     if (precord->ppn &&
         pnotifyPvt->state != notifyRestartCallbackRequested) {
         /* Another processNotify owns the record */
-        pnotifyPvt->state = notifyWaitForRestart; 
+        pnotifyPvt->state = notifyWaitForRestart;
         ellSafeAdd(&precord->ppnr->restartList, &ppn->restartNode);
         epicsMutexUnlock(pnotifyGlobal->lock);
         dbScanUnlock(precord);
@@ -231,7 +225,7 @@ static void processNotifyCommon(processNotify *ppn,dbCommon *precord)
     if (precord->pact) {
         precord->ppn = ppn;
         ellSafeAdd(&pnotifyPvt->waitList, &precord->ppnr->waitNode);
-        pnotifyPvt->state = notifyRestartInProgress; 
+        pnotifyPvt->state = notifyRestartInProgress;
         epicsMutexUnlock(pnotifyGlobal->lock);
         dbScanUnlock(precord);
         return;
@@ -256,6 +250,9 @@ static void processNotifyCommon(processNotify *ppn,dbCommon *precord)
             doProcess = 1;
 
     if (doProcess) {
+        if (first) {
+            precord->putf = TRUE;
+        }
         ppn->wasProcessed = 1;
         precord->ppn = ppn;
         ellSafeAdd(&pnotifyPvt->waitList, &precord->ppnr->waitNode);
@@ -273,7 +270,7 @@ static void processNotifyCommon(processNotify *ppn,dbCommon *precord)
     callDone(precord, ppn);
 }
 
-static void notifyCallback(CALLBACK *pcallback)
+static void notifyCallback(epicsCallback *pcallback)
 {
     processNotify *ppn = NULL;
     dbCommon  *precord;
@@ -298,7 +295,7 @@ static void notifyCallback(CALLBACK *pcallback)
         return;
     }
     if(pnotifyPvt->state == notifyRestartCallbackRequested) {
-        processNotifyCommon(ppn, precord);
+        processNotifyCommon(ppn, precord, 0);
         return;
     }
     /* All done. Clean up and call userCallback */
@@ -350,7 +347,7 @@ void dbProcessNotify(processNotify *ppn)
         if (ppn->requestType == processGetRequest ||
             ppn->requestType == putProcessGetRequest) {
                 ppn->getCallback(ppn, getFieldType);
-            
+
         }
         ppn->doneCallback(ppn);
         return;
@@ -382,7 +379,7 @@ void dbProcessNotify(processNotify *ppn)
         precord->ppnr->precord = precord;
         ellInit(&precord->ppnr->restartList);
     }
-    processNotifyCommon(ppn, precord);
+    processNotifyCommon(ppn, precord, 1);
 }
 
 void dbNotifyCancel(processNotify *ppn)
@@ -416,7 +413,7 @@ void dbNotifyCancel(processNotify *ppn)
         epicsMutexUnlock(pnotifyGlobal->lock);
         return;
     case notifyNotActive:
-    	break;
+        break;
     case notifyWaitForRestart:
         assert(precord->ppn);
         assert(precord->ppn!=ppn);
@@ -428,7 +425,7 @@ void dbNotifyCancel(processNotify *ppn)
             processNotifyRecord *ppnrWait;
 
             while ((ppnrWait = (processNotifyRecord *)
-	                       ellFirst(&pnotifyPvt->waitList))) {
+                    ellFirst(&pnotifyPvt->waitList))) {
                 ellSafeDelete(&pnotifyPvt->waitList, &ppnrWait->waitNode);
                 restartCheck(ppnrWait);
             }
@@ -572,7 +569,7 @@ static void doneCallback(processNotify *ppn)
         printf("dbtpnCallback: success record=%s\n", pname);
     else
         printf("%s dbtpnCallback processNotify.status %d\n",
-	    pname, (int) status);
+            pname, (int) status);
     epicsEventSignal(ptpnInfo->callbackDone);
 }
 
@@ -582,7 +579,7 @@ static void tpnThread(void *pvt)
     processNotify *ppn = (processNotify *) ptpnInfo->ppn;
 
     dbProcessNotify(ppn);
-    epicsEventWait(ptpnInfo->callbackDone);
+    epicsEventMustWait(ptpnInfo->callbackDone);
     dbNotifyCancel(ppn);
     epicsEventDestroy(ptpnInfo->callbackDone);
     dbChannelDelete(ppn->chan);
@@ -605,7 +602,7 @@ long dbtpn(char *pname, char *pvalue)
         printf("dbtpn: No such channel\n");
         return -1;
     }
-    
+
     ppn = dbCalloc(1, sizeof(processNotify));
     ppn->requestType = pvalue ? putProcessRequest : processGetRequest;
     ppn->chan = chan;
@@ -616,8 +613,10 @@ long dbtpn(char *pname, char *pvalue)
     ptpnInfo = dbCalloc(1, sizeof(tpnInfo));
     ptpnInfo->ppn = ppn;
     ptpnInfo->callbackDone = epicsEventCreate(epicsEventEmpty);
-    strncpy(ptpnInfo->buffer, pvalue, 80);
-    ptpnInfo->buffer[79] = 0;
+    if (pvalue) {
+        strncpy(ptpnInfo->buffer, pvalue, sizeof(ptpnInfo->buffer));
+        ptpnInfo->buffer[sizeof(ptpnInfo->buffer)-1] = 0;
+    }
 
     ppn->usrPvt = ptpnInfo;
     epicsThreadCreate("dbtpn", epicsThreadPriorityHigh,
@@ -674,7 +673,7 @@ int dbNotifyDump(void)
                 ppnRestart = (processNotify *)ellFirst(
                     &precord->ppnr->restartList);
                 if (ppnRestart)
-		    printf("%s restartList\n", precord->name);
+                    printf("%s restartList\n", precord->name);
                 while (ppnRestart) {
                     printf("    %s\n", dbChannelRecord(ppnRestart->chan)->name);
                     ppnRestart = (processNotify *) ellNext(

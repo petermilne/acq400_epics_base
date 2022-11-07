@@ -1,4 +1,4 @@
-TOP=../..
+TOP=../../../..
 
 include $(TOP)/configure/CONFIG
 
@@ -8,6 +8,11 @@ TEMPLATES += top/iocApp/Makefile
 TEMPLATES += top/iocApp/Db/Makefile
 TEMPLATES += top/iocApp/src/Makefile
 TEMPLATES += top/iocApp/src/_APPNAME_Main.cpp
+
+TEMPLATES += top/supportApp/Makefile
+TEMPLATES += top/supportApp/Db/Makefile
+TEMPLATES += top/supportApp/src/Makefile
+TEMPLATES += top/supportApp/src/_APPNAME_.dbd
 
 TEMPLATES += top/exampleApp/Makefile
 TEMPLATES += top/exampleApp/Db/Makefile

@@ -65,6 +65,10 @@ INC += osdVME.h
 INC += epicsMMIO.h
 INC += epicsMMIODef.h
 
+INC_clang += epicsAtomicGCC.h
+INC_gcc   += epicsAtomicGCC.h
+INC += $(INC_$(CMPLR_CLASS))
+
 Com_SRCS += epicsThread.cpp
 Com_SRCS += epicsMutex.cpp
 Com_SRCS += epicsEvent.cpp
@@ -77,7 +81,7 @@ Com_SRCS += epicsGeneralTime.c
 
 # Time providers
 Com_SRCS += osiClockTime.c
-Com_SRCS_vxWorks += osiNTPTime.c
+Com_SRCS_vxWorks += osiNTPTime.c tz2timezone.c
 Com_SRCS_RTEMS += osiNTPTime.c
 
 ifeq ($(OS_CLASS),vxWorks)
@@ -86,6 +90,7 @@ endif
 
 Com_SRCS += osdSock.c
 Com_SRCS += osdSockAddrReuse.cpp
+Com_SRCS += osdSockUnsentCount.c
 Com_SRCS += osiSock.c
 Com_SRCS += systemCallIntMech.cpp
 Com_SRCS += epicsSocketConvertErrnoToString.cpp
@@ -103,7 +108,7 @@ epicsReadline_INCLUDES += $(INCLUDES_$(COMMANDLINE_LIBRARY))
 
 Com_SRCS += epicsReadline.c
 
-Com_SRCS += epicsTempFile.cpp
+Com_SRCS += epicsTempFile.c
 Com_SRCS += epicsStdio.c
 Com_SRCS += osdStdio.c
 
@@ -111,6 +116,7 @@ Com_SRCS += osdStdio.c
 THREAD_CPPFLAGS_NO += -DDONT_USE_POSIX_THREAD_PRIORITY_SCHEDULING
 osdThread_CPPFLAGS += $(THREAD_CPPFLAGS_$(USE_POSIX_THREAD_PRIORITY_SCHEDULING))
 osdSpin_CPPFLAGS += $(THREAD_CPPFLAGS_$(USE_POSIX_THREAD_PRIORITY_SCHEDULING))
+osdMutex_CPPFLAGS += $(THREAD_CPPFLAGS_$(USE_POSIX_THREAD_PRIORITY_SCHEDULING))
 
 Com_SRCS += osdThread.c
 Com_SRCS += osdThreadExtra.c
@@ -123,6 +129,7 @@ Com_SRCS += osdMonotonic.c
 Com_SRCS += osdProcess.c
 Com_SRCS += osdNetIntf.c
 Com_SRCS += osdMessageQueue.c
+Com_SRCS += osdgetexec.c
 
 Com_SRCS += devLibVME.c
 Com_SRCS += devLibVMEOSD.c

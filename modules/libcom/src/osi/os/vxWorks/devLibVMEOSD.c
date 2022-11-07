@@ -3,14 +3,15 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
-* in file LICENSE that is included with this distribution. 
+* in file LICENSE that is included with this distribution.
 \*************************************************************************/
-/* 
- * Archictecture dependent support for common device driver resources 
+/*
+ * Architecture dependent support for common device driver resources
  *
- *      Author: Jeff Hill 
- *      Date: 10-30-98  
+ *      Author: Jeff Hill
+ *      Date: 10-30-98
  */
 
 #include <stdlib.h>
@@ -76,7 +77,7 @@ int cISRTest(void (*)(), void (**)(), void **);
 
 #define EPICSAddrTypeNoConvert -1
 
-int EPICStovxWorksAddrType[] 
+int EPICStovxWorksAddrType[]
                 = {
                 VME_AM_SUP_SHORT_IO,
                 VME_AM_STD_SUP_DATA,
@@ -97,20 +98,34 @@ static long vxDevMapAddr (epicsAddressType addrType, unsigned options,
         size_t logicalAddress, size_t size, volatile void **ppPhysicalAddress);
 
 /*
- * a bus error safe "wordSize" read at the specified address which returns 
- * unsuccessful status if the device isnt present
+ * a bus error safe "wordSize" read at the specified address which returns
+ * unsuccessful status if the device isn't present
  */
 static long vxDevReadProbe (unsigned wordSize, volatile const void *ptr, void *pValue);
 
 /*
- * a bus error safe "wordSize" write at the specified address which returns 
- * unsuccessful status if the device isnt present
+ * a bus error safe "wordSize" write at the specified address which returns
+ * unsuccessful status if the device isn't present
  */
 static long vxDevWriteProbe (unsigned wordSize, volatile void *ptr, const void *pValue);
 
 static void *devA24Malloc(size_t size);
 static void devA24Free(void *pBlock);
-static long devInit(void) { return 0;}
+
+/* We don't know which functions are implemented in the BSP */
+static int (*sysIntEnableFunc)(int) = NULL;
+static int (*sysIntDisableFunc)(int) = NULL;
+static int (*sysIntEnablePICFunc)(int) = NULL;
+static int (*sysIntDisablePICFunc)(int) = NULL;
+
+static long devInit(void)
+{
+    sysIntEnableFunc = epicsFindSymbol ("sysIntEnable");
+    sysIntDisableFunc = epicsFindSymbol ("sysIntDisable");
+    sysIntDisablePICFunc = epicsFindSymbol ("sysIntDisablePIC");
+    sysIntEnablePICFunc = epicsFindSymbol ("sysIntEnablePIC");
+    return 0;
+}
 
 static long vxDevConnectInterruptVME (
     unsigned vectorNumber,
@@ -119,7 +134,7 @@ static long vxDevConnectInterruptVME (
 
 static long vxDevDisconnectInterruptVME (
     unsigned vectorNumber,
-    void (*pFunction)() 
+    void (*pFunction)()
 );
 
 static long vxDevEnableInterruptLevelVME (unsigned level);
@@ -132,7 +147,7 @@ static int vxDevInterruptInUseVME (unsigned vectorNumber);
  * used by dynamic bind in devLib.c
  */
 static devLibVME vxVirtualOS = {
-    vxDevMapAddr, vxDevReadProbe, vxDevWriteProbe, 
+    vxDevMapAddr, vxDevReadProbe, vxDevWriteProbe,
     vxDevConnectInterruptVME, vxDevDisconnectInterruptVME,
     vxDevEnableInterruptLevelVME, vxDevDisableInterruptLevelVME,
     devA24Malloc,devA24Free,devInit,vxDevInterruptInUseVME
@@ -153,12 +168,12 @@ static long vxDevConnectInterruptVME (
 
 
     if (devInterruptInUseVME(vectorNumber)) {
-        return S_dev_vectorInUse; 
+        return S_dev_vectorInUse;
     }
     status = intConnect(
             (void *)INUM_TO_IVEC(vectorNumber),
             pFunction,
-            (int) parameter);       
+            (int) parameter);
     if (status<0) {
         return S_dev_vecInstlFail;
     }
@@ -172,14 +187,14 @@ static long vxDevConnectInterruptVME (
  *
  *  wrapper to minimize driver dependency on vxWorks
  *
- *  The parameter pFunction should be set to the C function pointer that 
- *  was connected. It is used as a key to prevent a driver from removing 
+ *  The parameter pFunction should be set to the C function pointer that
+ *  was connected. It is used as a key to prevent a driver from removing
  *  an interrupt handler that was installed by another driver
  *
  */
 static long vxDevDisconnectInterruptVME (
     unsigned vectorNumber,
-    void (*pFunction)() 
+    void (*pFunction)()
 )
 {
     void (*psub)();
@@ -201,7 +216,7 @@ static long vxDevDisconnectInterruptVME (
     status = intConnect(
             (void *)INUM_TO_IVEC(vectorNumber),
             unsolicitedHandlerEPICS,
-            (int) vectorNumber);        
+            (int) vectorNumber);
     if(status<0){
         return S_dev_vecInstlFail;
     }
@@ -214,16 +229,16 @@ static long vxDevDisconnectInterruptVME (
  */
 static long vxDevEnableInterruptLevelVME (unsigned level)
 {
-#   if CPU_FAMILY != I80X86 
+    if (sysIntEnableFunc) {
         int s;
-        s = sysIntEnable (level);
+        s = sysIntEnableFunc (level);
         if (s!=OK) {
             return S_dev_intEnFail;
         }
         return 0;
-#   else
+    } else {
         return S_dev_intEnFail;
-#   endif
+    }
 }
 
 /*
@@ -231,16 +246,16 @@ static long vxDevEnableInterruptLevelVME (unsigned level)
  */
 long devEnableInterruptLevelISA (unsigned level)
 {
-#   if CPU_FAMILY == I80X86
+    if (sysIntEnablePICFunc) {
         int s;
-        s = sysIntEnablePIC (level);
+        s = sysIntEnablePICFunc (level);
         if (s!=OK) {
             return S_dev_intEnFail;
         }
         return 0;
-#   else
+    } else {
         return S_dev_intEnFail;
-#   endif
+    }
 }
 
 /*
@@ -248,15 +263,15 @@ long devEnableInterruptLevelISA (unsigned level)
  */
 long devDisableInterruptLevelISA (unsigned level)
 {
-#   if CPU_FAMILY == I80X86
+    if (sysIntDisablePICFunc) {
         int s;
-        s = sysIntDisablePIC (level);
+        s = sysIntDisablePICFunc (level);
         if (s!=OK) {
             return S_dev_intEnFail;
         }
-#   else
+    } else {
         return S_dev_intEnFail;
-#   endif
+    }
 
     return 0;
 }
@@ -266,16 +281,16 @@ long devDisableInterruptLevelISA (unsigned level)
  */
 static long vxDevDisableInterruptLevelVME (unsigned level)
 {
-#   if CPU_FAMILY != I80X86
+    if (sysIntDisableFunc) {
         int s;
-        s = sysIntDisable (level);
+        s = sysIntDisableFunc (level);
         if (s!=OK) {
             return S_dev_intDissFail;
         }
         return 0;
-#   else
+    } else {
         return S_dev_intEnFail;
-#   endif
+    }
 }
 
 /*
@@ -307,7 +322,7 @@ static long vxDevMapAddr (epicsAddressType addrType, unsigned options,
 }
 
 /*
- * a bus error safe "wordSize" read at the specified address which returns 
+ * a bus error safe "wordSize" read at the specified address which returns
  * unsuccessful status if the device isn't present
  */
 static long vxDevReadProbe (unsigned wordSize, volatile const void *ptr, void *pValue)
@@ -323,7 +338,7 @@ static long vxDevReadProbe (unsigned wordSize, volatile const void *ptr, void *p
 }
 
 /*
- * a bus error safe "wordSize" write at the specified address which returns 
+ * a bus error safe "wordSize" write at the specified address which returns
  * unsuccessful status if the device isn't present
  */
 static long vxDevWriteProbe (unsigned wordSize, volatile void *ptr, const void *pValue)
@@ -387,7 +402,7 @@ static int vxDevInterruptInUseVME (unsigned vectorNumber)
             initHandlerAddrList();
             init = TRUE;
         }
-    
+
         psub = isrFetch (vectorNumber);
 
         /*
@@ -437,7 +452,7 @@ void unsolicitedHandlerEPICS(int vectorNumber)
  *      init list of interrupt handlers to ignore
  *
  */
-static 
+static
 void initHandlerAddrList(void)
 {
     int i;
@@ -469,7 +484,7 @@ static void *devA24Malloc(size_t size)
 {
     static int    UsingBSP = 0;
     void        *ret;
-    
+
     if (A24MallocFunc == NULL)
     {
         /* See if the sysA24Malloc() function is present. */
@@ -489,10 +504,10 @@ static void *devA24Malloc(size_t size)
         }
     }
     ret = A24MallocFunc(size);
-    
+
     if ((ret == NULL) && (UsingBSP))
         errMessage(S_dev_noMemory, "devLibA24Malloc ran out of A24 memory, try sysA24MapRam(size)");
-    
+
     return(ret);
 }
 

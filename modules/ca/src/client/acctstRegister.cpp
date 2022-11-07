@@ -3,6 +3,7 @@
 *     National Laboratory.
 * Copyright (c) 2002 The Regents of the University of California, as
 *     Operator of Los Alamos National Laboratory.
+* SPDX-License-Identifier: EPICS
 * EPICS BASE is distributed subject to a Software License Agreement found
 * in file LICENSE that is included with this distribution.
 \*************************************************************************/
@@ -31,7 +32,13 @@ static const iocshArg    *acctstArgs[] =
     &acctstArg3,
     &acctstArg4
 };
-static const iocshFuncDef acctstFuncDef = {"acctst", 5, acctstArgs};
+static const iocshFuncDef acctstFuncDef = {
+    "acctst",
+    5,
+    acctstArgs,
+    "Execute a Channel Access regression test.\n\n"
+    "For more information, see the 'acctst' documentation in the Channel Access reference.\n",
+};
 
 
 /* Wrapper called by iocsh, selects the argument types that print needs */
@@ -60,7 +67,7 @@ struct AutoInit {
     AutoInit ();
 };
 
-AutoInit :: AutoInit () 
+AutoInit :: AutoInit ()
 {
     iocshRegister ( &acctstFuncDef, acctstCallFunc );
 }

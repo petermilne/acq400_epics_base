@@ -1,8 +1,17 @@
+######################################################################
+# SPDX-License-Identifier: EPICS
+# EPICS BASE is distributed subject to a Software License Agreement
+# found in file LICENSE that is included with this distribution.
+######################################################################
+
 package DBD::Breaktable;
 use DBD::Base;
-@ISA = qw(DBD::Base);
+our @ISA = qw(DBD::Base);
 
 use Carp;
+use strict;
+
+my $warned;
 
 sub init {
     my ($this, $name) = @_;
@@ -11,6 +20,20 @@ sub init {
     $this->{COMMENTS} = [];
     $this->{POD} = [];
     return $this;
+}
+
+# Override, breaktable names don't have to be strict
+sub identifier {
+    my ($this, $id, $what) = @_;
+    confess "DBD::Breaktable::identifier: $what undefined!"
+        unless defined $id;
+    if ($id !~ m/^$RXname$/) {
+        my @message;
+        push @message, "A $what should contain only letters, digits and these",
+            "special characters: _ - : . [ ] < > ;" unless $warned++;
+        warnContext("Deprecated $what '$id'", @message);
+    }
+    return $id;
 }
 
 sub add_point {
