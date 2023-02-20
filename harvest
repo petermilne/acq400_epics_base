@@ -1,0 +1,15 @@
+#!/bin/bash
+# pull in all module products
+
+echo make install doesn\'t do this. find out why not. meanwhile
+
+[ -z $EPICS_BASE ] && (echo EPICS_BASE not defined; exit 1)
+
+for mod in ../modules/*
+do
+	echo $mod
+	for prod in bin lib dbd
+	do
+		cp -a $mod/$prod/* $prod
+	done
+done

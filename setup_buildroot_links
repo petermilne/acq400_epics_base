@@ -3,7 +3,14 @@ if [ "x$TARGET_LIB" = "x" ]; then
 	source setup.env
 fi
 
-BR=~/PROJECTS/buildroot/output/host/arm-buildroot-linux-gnueabihf/sysroot
+BR=${PWD}/../../acq400_buildroot/output/host/arm-buildroot-linux-gnueabihf/sysroot/
+if [ ! -e $BR ]; then
+	echo "base BR $BR does not exist try.."	
+	BR=~/PROJECTS/buildroot/output/host/arm-buildroot-linux-gnueabihf/sysroot
+	if [ ! -e $BR ]; then
+		echo secondary BR $BR does not exist; exit 1
+	fi
+fi
 
 if [ ! -e $TARGET_LIB ]; then
 	mkdir -p $TARGET_LIB/linux-arm
