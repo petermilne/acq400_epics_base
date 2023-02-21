@@ -29,6 +29,7 @@ GNU_DIR = /tools/Xilinx/SDK/2018.3/gnu/aarch32/lin/gcc-arm-linux-gnueabi
 # To use libreadline, point this to its install prefix
 #READLINE_DIR = $(GNU_DIR)
 #READLINE_DIR = /tools/cross/linux-x86.linux-arm/readline
+#READLINE_DIR = $(TOP)/../acq400_buildroot/output/target/usr/lib/
 # See CONFIG_SITE.Common.linux-arm for other COMMANDLINE_LIBRARY values
 #COMMANDLINE_LIBRARY = READLINE
 ifeq ($(EPICS_ROOT),)

@@ -1,5 +1,7 @@
 echo ACQ400 branched from BASE 7.0.2 and cross compiled
 
+dnf install rpcgen re2c libtirpc-devel
+
 (cd ..; sudo ln -s ${PWD} /usr/local/epics)
 sudo ln -s /home/pgm/PROJECTS/EPICS7 /usr/local/epics
 

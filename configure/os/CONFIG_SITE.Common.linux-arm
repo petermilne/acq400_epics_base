@@ -21,13 +21,13 @@
 # from the top of the Base tree after changing this setting.
 
 # Needs -lncurses:
-#COMMANDLINE_LIBRARY = READLINE_NCURSES
+COMMANDLINE_LIBRARY = READLINE_NCURSESW
 
 # Needs -lcurses:
 #COMMANDLINE_LIBRARY = READLINE_CURSES
 
 # Readline is broken or you don't want use it:
-COMMANDLINE_LIBRARY = EPICS
+#COMMANDLINE_LIBRARY = EPICS
 
 
 # WARNING: Variables that are set in $(CONFIG)/CONFIG.gnuCommon cannot be
