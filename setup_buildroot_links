@@ -14,11 +14,13 @@ fi
 
 if [ ! -e $TARGET_LIB ]; then
 	mkdir -p $TARGET_LIB/linux-arm
-	(cd ${BR}/usr/lib/; cp -a -t $TARGET_LIB/linux-arm libtirpc.so* libreadline.so* libncurses.so* libfftw3f.so* libpcre.so*)
+	(cd ${BR}/usr/lib/; cp -a -t $TARGET_LIB/linux-arm libtirpc.so* libreadline.so* libncursesw.so* libfftw3f.so* libpcre.so*)
+        ls -l $TARGET_LIB/linux-arm/
 fi
 if [ ! -e $TARGET_INC ]; then
 	mkdir -p $TARGET_INC/linux-arm
 	ln -s ${BR}/usr/include/readline $TARGET_INC/linux-arm
+	ls -l $TARGET_INC/linux-arm
 fi
 
 
