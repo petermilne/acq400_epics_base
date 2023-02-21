@@ -1,11 +1,29 @@
 echo ACQ400 branched from BASE 7.0.2 and cross compiled
 
-dnf install rpcgen re2c libtirpc-devel
+echo dnf install rpcgen re2c libtirpc-devel
 
-(cd ..; sudo ln -s ${PWD} /usr/local/epics)
-sudo ln -s /home/pgm/PROJECTS/EPICS7 /usr/local/epics
+ok=0
+while [ $ok -eq 0 ]; do
+	echo -n continue\?; read continue
+        case $continue in
+	y|Y)
+		ok=1;;
+	n|N)
+		exit 0;;
+	esac
+done      
 
-cd base; make
-(cd ../modules; for dir in *;do (cd $dir; make); done
+cd .. 
+if [ -d /usr/local/epics ]; then
+    echo DANGER /usr/local/epics already exists, quit; exit 1
+fi
+sudo ln -s ${PWD} /usr/local/epics)
+ln -s acq400_epics_base base
+
+cd base; 
+source ./setup.env
+./setup_buildroot_links
+make
+(cd ../modules; for dir in *;do (cd $dir; make); done)
 ./harvest
 
