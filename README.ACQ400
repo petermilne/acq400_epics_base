@@ -17,7 +17,7 @@ cd ..
 if [ -d /usr/local/epics ]; then
     echo DANGER /usr/local/epics already exists, quit; exit 1
 fi
-sudo ln -s ${PWD} /usr/local/epics)
+sudo ln -s ${PWD} /usr/local/epics
 ln -s acq400_epics_base base
 
 cd base; 
