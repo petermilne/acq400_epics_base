@@ -10,6 +10,6 @@ do
 	echo $mod
 	for prod in bin lib dbd
 	do
-		cp -a $mod/$prod/* $prod
+		cp -af $mod/$prod/* $prod
 	done
 done
