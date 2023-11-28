@@ -1,6 +1,7 @@
 echo ACQ400 branched from BASE 7.0.2 and cross compiled
 
 echo dnf install rpcgen re2c libtirpc-devel
+echo dnf install perl-ExtUtils-Install perl-FindBin
 
 ok=0
 while [ $ok -eq 0 ]; do
